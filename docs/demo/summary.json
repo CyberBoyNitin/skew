@@ -1,0 +1,55 @@
+{
+  "meta": {
+    "startedAt": "2026-11-10T07:07:33.433Z",
+    "durationS": 0.21,
+    "seed": 7,
+    "probeCount": 8,
+    "trials": 3,
+    "stacks": [
+      "alpha",
+      "beta",
+      "gamma",
+      "delta"
+    ],
+    "version": "0.1.0",
+    "origin": "demo"
+  },
+  "stats": {
+    "calls": 337,
+    "errors": 0,
+    "minimizeChecks": 140
+  },
+  "counts": {
+    "total": 18,
+    "safety": 4,
+    "semantic": 5,
+    "format-only": 9
+  },
+  "unstable": [
+    {
+      "stackA": "alpha",
+      "stackB": "gamma",
+      "probes": 8,
+      "exampleProbe": "p000",
+      "stabilityA": 1,
+      "stabilityB": 0.6666666666666666
+    },
+    {
+      "stackA": "beta",
+      "stackB": "gamma",
+      "probes": 8,
+      "exampleProbe": "p000",
+      "stabilityA": 1,
+      "stabilityB": 0.6666666666666666
+    },
+    {
+      "stackA": "gamma",
+      "stackB": "delta",
+      "probes": 8,
+      "exampleProbe": "p000",
+      "stabilityA": 0.6666666666666666,
+      "stabilityB": 1
+    }
+  ],
+  "errorSamples": []
+}

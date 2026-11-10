@@ -1,0 +1,27 @@
+{
+  "seed": 7,
+  "probes": 12,
+  "trials": 3,
+  "minStability": 0.8,
+  "minimize": true,
+  "maxChecks": 30,
+  "stacks": [
+    {
+      "name": "hosted-mini",
+      "baseUrl": "https://api.openai.com/v1",
+      "model": "gpt-5-mini",
+      "apiKeyEnv": "OPENAI_API_KEY"
+    },
+    {
+      "name": "hosted-nano",
+      "baseUrl": "https://api.openai.com/v1",
+      "model": "gpt-5-nano",
+      "apiKeyEnv": "OPENAI_API_KEY"
+    },
+    {
+      "name": "local-qwen",
+      "baseUrl": "http://localhost:8000/v1",
+      "model": "qwen3-8b"
+    }
+  ]
+}
