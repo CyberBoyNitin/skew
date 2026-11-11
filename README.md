@@ -27,6 +27,10 @@ node src/cli.ts run --config skew.config.json
 
 # fail CI if the stacks disagree on safety
 node src/cli.ts run --config skew.config.json --fail-on safety
+
+# record a live run once, then replay it offline as often as needed
+node src/cli.ts run --config skew.config.json --record fixtures/run-001
+node src/cli.ts run --config skew.config.json --replay fixtures/run-001
 ```
 
 ## What the demo shows
@@ -68,14 +72,18 @@ The hard part is not generating prompts. It is making the result trustworthy:
   into a different error is rejected, and the original is kept.
 - **A failure taxonomy.** `format-only`, `semantic`, `safety`, `unstable` —
   each implies a different fix.
+- **Runs that survive real providers.** Calls are retried with exponential
+  backoff, bounded by a concurrency cap, and can be recorded once and replayed
+  offline with the full minimizer intact.
 
 ## How it works
 
 1. **Generate** — a seeded grammar emits extraction probes around edge cases:
    unsafe integers, float precision, null, unicode, empty strings, escaped
    characters, dates, booleans.
-2. **Sample** — every stack answers every probe N times at temperature 0. The
-   modal output and its stability are computed per stack.
+2. **Sample** — every stack answers every probe N times at temperature 0, with
+   retries and a concurrency cap. The modal output and its stability are
+   computed per stack.
 3. **Classify** — stacks that disagree with themselves are marked unstable.
    Stable disagreements are compared structurally and labeled.
 4. **Minimize** — ddmin removes prompt segments while the disagreement
@@ -108,10 +116,15 @@ usage errors.
 {
   "seed": 7,
   "probes": 12,
+  "probeFiles": ["probes.jsonl"],
   "trials": 3,
   "minStability": 0.8,
   "minimize": true,
   "maxChecks": 30,
+  "concurrency": 4,
+  "retries": 2,
+  "retryDelayMs": 500,
+  "retryMaxDelayMs": 8000,
   "stacks": [
     {
       "name": "hosted-mini",
@@ -130,6 +143,58 @@ usage errors.
 
 `apiKeyEnv` is read from the environment. Prefer it over inline `apiKey`.
 
+Probe files are resolved relative to the config file. Retries apply to transport
+errors plus HTTP 408, 409, 425, 429, and 5xx; other 4xx responses fail fast.
+
+## Custom probes
+
+Generated probes cover extraction edge cases. Bring your own prompts inline or
+as JSONL:
+
+```json
+{
+  "probes": 0,
+  "customProbes": [
+    {
+      "id": "tool-01",
+      "segments": [
+        "TASK: Choose one tool for the request.",
+        "TOOLS: search, refund, escalate",
+        "REQUEST: where is my order?"
+      ],
+      "protected": [0, 1],
+      "tags": ["tool"]
+    }
+  ],
+  "probeFiles": ["probes.jsonl"]
+}
+```
+
+```json
+{"id":"sql-01","prompt":"TASK: write the query as JSON.\n\nSCHEMA: {\"sql\": string}\n\nREQUEST: orders above 1000.","tags":["sql"]}
+```
+
+- `prompt` is split on newlines; `segments` gives explicit control.
+- Minimization removes whole segments; `protected` indices are never removed.
+  It defaults to `[0]`, so the instruction line survives by default.
+- IDs must be unique across generated and custom probes.
+- `probes: 0` disables the generator for custom-only suites.
+
+## Record and replay
+
+```bash
+# once, against real stacks
+node src/cli.ts run --config skew.config.json --record fixtures/run-001
+
+# anywhere, including CI, with no keys and no network
+node src/cli.ts run --config skew.config.json --replay fixtures/run-001
+```
+
+`--record` writes one JSONL file per stack plus a manifest. `--replay` feeds
+those completions back through the same harness, so probes, classification,
+minimization, and final verification all run deterministically. Recording keeps
+successful completions only; a replay miss is a hard, non-retryable error.
+
 ## CLI
 
 ```text
@@ -141,6 +206,10 @@ skew run --config <file> [options]  compare live OpenAI-compatible stacks
     --probes <n>       number of generated probes
     --trials <n>       samples per stack per probe (default: 3)
     --max-checks <n>   minimization budget per finding (default: 30)
+    --concurrency <n>  max in-flight model calls (default: 4)
+    --retries <n>      retries per failed call, with backoff (default: 2)
+    --record <dir>     record completions for deterministic replay
+    --replay <dir>     replay a recorded run instead of calling stacks
     --no-minimize      skip delta debugging
     --fail-on <class>  exit 1 on format-only | semantic | safety
 ```
@@ -158,6 +227,12 @@ skew run --config <file> [options]  compare live OpenAI-compatible stacks
 - **Verification is mandatory.** A reduced prompt is re-sampled at the full
   trial count. If it stops reproducing, the original prompt is reported and the
   finding is marked `unverified`.
+- **Bounded concurrency and retries.** A semaphore caps in-flight calls across
+  probes, trials, and stacks. Transport failures, 429s, and 5xx responses retry
+  with exponential backoff and jitter; deterministic 4xx errors do not.
+- **Record/replay.** Each successful completion is keyed by stack, prompt, and
+  trial. Replaying a fixture directory exercises the real harness and minimizer
+  without making a network call, which is how the CLI-level replay test works.
 - **Zero runtime dependencies.** Node 24 runs the TypeScript sources directly;
   `npm run build` emits plain ESM for distribution.
 
@@ -168,7 +243,10 @@ skew run --config <file> [options]  compare live OpenAI-compatible stacks
 - Minimization samples one trial per stack because the search is call-heavy.
   The final check always uses the full trial count.
 - Prompt minimization removes whole segments (lines and blocks); it does not
-  rewrite text.
+  rewrite text. Custom probes are compared as-is, with no ground-truth answer.
+- Recordings contain successful completions only. A replayed run must use the
+  same probe set, seed, trial count, and minimization budget; otherwise a prompt
+  can miss the fixture and fail loudly.
 - Only the OpenAI chat-completions request/response shape is supported.
 - The demo stacks are scripted. Demo findings demonstrate the classifier and
   minimizer; they are not claims about any real model.

@@ -1,7 +1,7 @@
 {
   "meta": {
-    "startedAt": "2026-11-10T07:07:33.433Z",
-    "durationS": 0.21,
+    "startedAt": "2026-11-11T06:01:49.715Z",
+    "durationS": 0.12,
     "seed": 7,
     "probeCount": 8,
     "trials": 3,
@@ -11,12 +11,13 @@
       "gamma",
       "delta"
     ],
-    "version": "0.1.0",
+    "version": "0.2.0",
     "origin": "demo"
   },
   "stats": {
     "calls": 337,
     "errors": 0,
+    "retries": 0,
     "minimizeChecks": 140
   },
   "counts": {

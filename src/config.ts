@@ -1,4 +1,7 @@
 import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { normalizeProbeSpec } from "./probes.ts";
+import type { ProbeSpec } from "./probes.ts";
 import { HttpRunner } from "./runners.ts";
 import type { HttpRunnerOptions, Runner } from "./types.ts";
 
@@ -15,10 +18,16 @@ export interface StackConfig {
 export interface SkewConfig {
   seed: number;
   probes: number;
+  probeFiles: string[];
+  customProbes: ProbeSpec[];
   trials: number;
   minStability: number;
   minimize: boolean;
   maxChecks: number;
+  concurrency: number;
+  retries: number;
+  retryDelayMs: number;
+  retryMaxDelayMs: number;
   stacks: StackConfig[];
 }
 
@@ -29,10 +38,15 @@ export const DEFAULTS = {
   minStability: 0.8,
   minimize: true,
   maxChecks: 30,
+  concurrency: 4,
+  retries: 2,
+  retryDelayMs: 500,
+  retryMaxDelayMs: 8000,
 } as const;
 
 export async function loadConfig(filePath: string): Promise<SkewConfig> {
-  const raw = await readFile(filePath, "utf8");
+  const resolvedPath = resolve(filePath);
+  const raw = await readFile(resolvedPath, "utf8");
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -41,16 +55,38 @@ export async function loadConfig(filePath: string): Promise<SkewConfig> {
       `invalid JSON in ${filePath}: ${(error as Error).message}`,
     );
   }
-  return normalizeConfig(parsed);
+  return normalizeConfig(parsed, dirname(resolvedPath));
 }
 
-export function normalizeConfig(input: unknown): SkewConfig {
+export function normalizeConfig(
+  input: unknown,
+  baseDir?: string,
+): SkewConfig {
   const root = asRecord(input, "config");
 
   const seed = integerField(root, "seed", DEFAULTS.seed, 0);
-  const probes = integerField(root, "probes", DEFAULTS.probes, 1);
+  const probes = integerField(root, "probes", DEFAULTS.probes, 0);
   const trials = integerField(root, "trials", DEFAULTS.trials, 1);
   const maxChecks = integerField(root, "maxChecks", DEFAULTS.maxChecks, 1);
+  const concurrency = integerField(
+    root,
+    "concurrency",
+    DEFAULTS.concurrency,
+    1,
+  );
+  const retries = integerField(root, "retries", DEFAULTS.retries, 0);
+  const retryDelayMs = integerField(
+    root,
+    "retryDelayMs",
+    DEFAULTS.retryDelayMs,
+    0,
+  );
+  const retryMaxDelayMs = integerField(
+    root,
+    "retryMaxDelayMs",
+    DEFAULTS.retryMaxDelayMs,
+    0,
+  );
   const minStability = numberField(
     root,
     "minStability",
@@ -59,6 +95,33 @@ export function normalizeConfig(input: unknown): SkewConfig {
     1,
   );
   const minimize = booleanField(root, "minimize", DEFAULTS.minimize);
+
+  const rawFiles = root.probeFiles;
+  let probeFiles: string[] = [];
+  if (rawFiles !== undefined) {
+    if (!Array.isArray(rawFiles)) {
+      throw new Error("config.probeFiles must be an array");
+    }
+    probeFiles = rawFiles.map((value, index) => {
+      if (typeof value !== "string" || value.trim() === "") {
+        throw new Error(
+          `config.probeFiles[${index}] must be a non-empty string`,
+        );
+      }
+      return baseDir ? resolve(baseDir, value) : value;
+    });
+  }
+
+  const rawCustom = root.customProbes;
+  let customProbes: ProbeSpec[] = [];
+  if (rawCustom !== undefined) {
+    if (!Array.isArray(rawCustom)) {
+      throw new Error("config.customProbes must be an array");
+    }
+    customProbes = rawCustom.map((value, index) =>
+      normalizeProbeSpec(value, `config.customProbes[${index}]`),
+    );
+  }
 
   const rawStacks = root.stacks;
   if (!Array.isArray(rawStacks)) {
@@ -84,10 +147,16 @@ export function normalizeConfig(input: unknown): SkewConfig {
   return {
     seed,
     probes,
+    probeFiles,
+    customProbes,
     trials,
     minStability,
     minimize,
     maxChecks,
+    concurrency,
+    retries,
+    retryDelayMs,
+    retryMaxDelayMs,
     stacks,
   };
 }

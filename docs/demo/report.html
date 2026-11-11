@@ -118,14 +118,14 @@ footer{margin-top:56px;border-top:1px solid var(--line);padding-top:18px;display
         <span class="badge">seed 7</span>
         <span class="badge">8 probes</span>
         <span class="badge">3 trials</span>
-        <span class="badge">0.21s</span>
+        <span class="badge">0.12s</span>
       </div>
     </div>
     <div class="runmeta">
-      <div><b>run</b> 2026-11-10T07:07:33.433Z</div>
+      <div><b>run</b> 2026-11-11T06:01:49.715Z</div>
       <div><b>stacks</b> alpha · beta · gamma · delta</div>
       <div><b>calls</b> 337 · <b>errors</b> 0 · <b>checks</b> 140</div>
-      <div><b>skew</b> v0.1.0</div>
+      <div><b>skew</b> v0.2.0</div>
     </div>
   </header>
 
@@ -958,7 +958,7 @@ Rules: output JSON only. Do not explain your reasoning.</pre></details>
     <h2>Method</h2>
     <div class="method">
       <div class="step"><div class="num">01</div><div class="name">generate</div><p>A seeded grammar emits extraction probes around JSON edge cases: unsafe integers, float precision, null, unicode, empty strings.</p></div>
-      <div class="step"><div class="num">02</div><div class="name">sample</div><p>Every stack answers every probe N times at temperature 0. The modal output and its stability are computed per stack.</p></div>
+      <div class="step"><div class="num">02</div><div class="name">sample</div><p>Every stack answers every probe N times at temperature 0. Calls are retried with backoff and bounded by a concurrency limit. The modal output and its stability are computed per stack.</p></div>
       <div class="step"><div class="num">03</div><div class="name">classify</div><p>Stacks that disagree with themselves are marked unstable. The rest are compared structurally, with format-only, semantic, and safety verdicts.</p></div>
       <div class="step"><div class="num">04</div><div class="name">minimize</div><p>Each divergence is delta-debugged over prompt segments and re-verified at the full trial count. Only reductions that reproduce the same disagreement are kept.</p></div>
     </div>
@@ -978,7 +978,7 @@ Rules: output JSON only. Do not explain your reasoning.</pre></details>
   </section>
 
   <footer>
-    <span>skew v0.1.0 · 18 findings · 140 minimization checks</span>
+    <span>skew v0.2.0 · 18 findings · 140 minimization checks</span>
     <span>machine-readable artifacts: findings.jsonl · summary.json</span>
   </footer>
 </div>

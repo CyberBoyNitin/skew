@@ -14,6 +14,21 @@ export { ddmin } from "./minimize.ts";
 export { probeWithSegments, promptOf } from "./probe.ts";
 export type { Probe } from "./probe.ts";
 export {
+  loadProbes,
+  normalizeProbeSpec,
+  probeFromSpec,
+} from "./probes.ts";
+export type { LoadProbesOptions, ProbeSpec } from "./probes.ts";
+export {
+  loadReplayRunners,
+  RecordingRunner,
+  ReplayRunner,
+  safeStackName,
+  saveRecordings,
+} from "./replay.ts";
+export type { ReplayManifest } from "./replay.ts";
+export { Semaphore } from "./semaphore.ts";
+export {
   AlphaStack,
   BetaStack,
   DeltaStack,
@@ -22,6 +37,13 @@ export {
   RunnerError,
   demoStacks,
 } from "./runners.ts";
+export {
+  buildRunners,
+  DEFAULTS,
+  loadConfig,
+  normalizeConfig,
+} from "./config.ts";
+export type { SkewConfig, StackConfig } from "./config.ts";
 export {
   renderHtml,
   printSummary,
