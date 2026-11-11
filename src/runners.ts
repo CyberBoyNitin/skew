@@ -1,9 +1,12 @@
 import type { HttpRunnerOptions, Runner } from "./types.ts";
 
 export class RunnerError extends Error {
-  constructor(message: string) {
+  readonly retryable: boolean;
+
+  constructor(message: string, options: { retryable?: boolean } = {}) {
     super(message);
     this.name = "RunnerError";
+    this.retryable = options.retryable ?? true;
   }
 }
 
@@ -48,6 +51,7 @@ export class HttpRunner implements Runner {
     } catch (error) {
       throw new RunnerError(
         `${this.name}: request failed: ${(error as Error).message}`,
+        { retryable: true },
       );
     }
 
@@ -55,6 +59,7 @@ export class HttpRunner implements Runner {
     if (!response.ok) {
       throw new RunnerError(
         `${this.name}: HTTP ${response.status}: ${text.slice(0, 400)}`,
+        { retryable: isRetryableStatus(response.status) },
       );
     }
 
@@ -64,6 +69,7 @@ export class HttpRunner implements Runner {
     } catch {
       throw new RunnerError(
         `${this.name}: response was not JSON: ${text.slice(0, 300)}`,
+        { retryable: true },
       );
     }
 
@@ -71,10 +77,21 @@ export class HttpRunner implements Runner {
     if (content === null) {
       throw new RunnerError(
         `${this.name}: unexpected response shape: ${text.slice(0, 300)}`,
+        { retryable: false },
       );
     }
     return content;
   }
+}
+
+function isRetryableStatus(status: number): boolean {
+  return (
+    status === 408 ||
+    status === 409 ||
+    status === 425 ||
+    status === 429 ||
+    status >= 500
+  );
 }
 
 function extractContent(body: unknown): string | null {

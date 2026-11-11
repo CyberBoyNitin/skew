@@ -1,6 +1,6 @@
 {
   "name": "skew-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Differential fuzzing for LLM stacks: find, classify, and minimize behavioral divergences.",
   "type": "module",
   "bin": {

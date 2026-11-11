@@ -5,6 +5,10 @@
   "minStability": 0.8,
   "minimize": true,
   "maxChecks": 30,
+  "concurrency": 4,
+  "retries": 2,
+  "retryDelayMs": 500,
+  "retryMaxDelayMs": 8000,
   "stacks": [
     {
       "name": "hosted-mini",

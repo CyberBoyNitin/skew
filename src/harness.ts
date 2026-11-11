@@ -2,6 +2,8 @@ import { analyze, differenceFingerprint, severityFor, signature } from "./core.t
 import { ddmin } from "./minimize.ts";
 import { promptOf, probeWithSegments } from "./probe.ts";
 import type { Probe } from "./probe.ts";
+import { RunnerError } from "./runners.ts";
+import { Semaphore } from "./semaphore.ts";
 import type {
   DivergenceVerdict,
   Finding,
@@ -22,6 +24,10 @@ export interface HarnessOptions {
   seed?: number;
   origin?: string;
   version?: string;
+  concurrency?: number;
+  retries?: number;
+  retryDelayMs?: number;
+  retryMaxDelayMs?: number;
 }
 
 interface UnstableAccumulator {
@@ -43,10 +49,15 @@ export class Harness {
   private readonly seed: number;
   private readonly origin: string;
   private readonly version: string;
+  private readonly retries: number;
+  private readonly retryDelayMs: number;
+  private readonly retryMaxDelayMs: number;
+  private readonly semaphore: Semaphore;
 
   private readonly stats: RunStats = {
     calls: 0,
     errors: 0,
+    retries: 0,
     minimizeChecks: 0,
   };
   private readonly errorSamples: string[] = [];
@@ -60,6 +71,9 @@ export class Harness {
     if ((options.trials ?? 3) < 1) {
       throw new Error("trials must be at least 1");
     }
+    if ((options.retries ?? 2) < 0) {
+      throw new Error("retries must be zero or greater");
+    }
 
     this.probes = options.probes;
     this.stacks = options.stacks;
@@ -70,6 +84,10 @@ export class Harness {
     this.seed = options.seed ?? 0;
     this.origin = options.origin ?? "live";
     this.version = options.version ?? VERSION;
+    this.retries = options.retries ?? 2;
+    this.retryDelayMs = options.retryDelayMs ?? 500;
+    this.retryMaxDelayMs = options.retryMaxDelayMs ?? 8000;
+    this.semaphore = new Semaphore(options.concurrency ?? 4);
 
     for (const probe of this.probes) {
       this.probesById.set(probe.id, probe);
@@ -199,23 +217,69 @@ export class Harness {
     const cached = this.cache.get(key);
     if (cached) return cached;
 
-    const outputs: string[] = [];
-    for (let trial = 0; trial < trials; trial += 1) {
+    const outputs = await Promise.all(
+      Array.from({ length: trials }, (_, trial) =>
+        this.trialOutput(stack, prompt, trial),
+      ),
+    );
+    const successful = outputs.filter(
+      (output): output is string => output !== null,
+    );
+
+    this.cache.set(key, successful);
+    return successful;
+  }
+
+  private async trialOutput(
+    stack: Runner,
+    prompt: string,
+    trial: number,
+  ): Promise<string | null> {
+    try {
+      return await this.completeWithRetry(stack, prompt, trial);
+    } catch (error) {
+      if (this.errorSamples.length < 5) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.errorSamples.push(`${stack.name}: ${message}`);
+      }
+      return null;
+    }
+  }
+
+  private async completeWithRetry(
+    stack: Runner,
+    prompt: string,
+    trial: number,
+  ): Promise<string> {
+    const attempts = this.retries + 1;
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
-        outputs.push(await stack.complete(prompt, trial));
+        const output = await this.semaphore.run(() =>
+          stack.complete(prompt, trial),
+        );
         this.stats.calls += 1;
+        return output;
       } catch (error) {
-        this.stats.errors += 1;
-        if (this.errorSamples.length < 5) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          this.errorSamples.push(`${stack.name}: ${message}`);
-        }
+        lastError = error;
+        if (attempt >= attempts - 1 || !isRetryable(error)) break;
+        this.stats.retries += 1;
+        await sleep(this.retryDelay(attempt));
       }
     }
 
-    this.cache.set(key, outputs);
-    return outputs;
+    this.stats.errors += 1;
+    throw lastError;
+  }
+
+  private retryDelay(attempt: number): number {
+    const base = Math.min(
+      this.retryDelayMs * 2 ** attempt,
+      this.retryMaxDelayMs,
+    );
+    const jitter = 0.8 + Math.random() * 0.4;
+    return Math.round(base * jitter);
   }
 
   private async minimizeFinding(
@@ -301,6 +365,17 @@ export class Harness {
       checks,
     };
   }
+}
+
+function isRetryable(error: unknown): boolean {
+  if (error instanceof RunnerError) return error.retryable;
+  return true;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function assignClusters(findings: Finding[]): void {

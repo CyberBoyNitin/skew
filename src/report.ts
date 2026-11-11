@@ -133,7 +133,13 @@ export function printSummary(run: Run, outDir: string): void {
   const counts = countVerdicts(run.findings);
   const sorted = sortFindings(run.findings);
   const originNote =
-    run.meta.origin === "demo" ? "demo (scripted stacks, no network)" : "live";
+    run.meta.origin === "demo"
+      ? "demo (scripted stacks, no network)"
+      : run.meta.origin === "replay"
+        ? "replay (recorded fixtures, no network)"
+        : "live";
+  const retries =
+    run.stats.retries > 0 ? `   retries   ${run.stats.retries}` : "";
 
   console.log("");
   console.log(`SKEW  ${run.meta.startedAt}  ${originNote}`);
@@ -141,7 +147,7 @@ export function printSummary(run: Run, outDir: string): void {
     `stacks   ${run.meta.stacks.join(", ")}`,
   );
   console.log(
-    `probes   ${run.meta.probeCount}   trials   ${run.meta.trials}   calls   ${run.stats.calls}   errors   ${run.stats.errors}   checks   ${run.stats.minimizeChecks}`,
+    `probes   ${run.meta.probeCount}   trials   ${run.meta.trials}   calls   ${run.stats.calls}   errors   ${run.stats.errors}${retries}   checks   ${run.stats.minimizeChecks}`,
   );
   console.log(
     `found    ${counts.total} divergences (${counts.safety} safety, ${counts.semantic} semantic, ${counts["format-only"]} format-only) · ${run.unstable.length} unstable pairs`,
@@ -191,7 +197,11 @@ export function renderHtml(run: Run): string {
   const originBadge =
     run.meta.origin === "demo"
       ? '<span class="badge demo">scripted demo · no network</span>'
-      : '<span class="badge">live run</span>';
+      : run.meta.origin === "replay"
+        ? '<span class="badge demo">replay · recorded fixtures</span>'
+        : '<span class="badge">live run</span>';
+  const retryMeta =
+    run.stats.retries > 0 ? ` · <b>retries</b> ${run.stats.retries}` : "";
 
   const distribution = (["safety", "semantic", "format-only"] as const)
     .map((verdict) => {
@@ -255,7 +265,7 @@ export function renderHtml(run: Run): string {
     <div class="runmeta">
       <div><b>run</b> ${esc(run.meta.startedAt)}</div>
       <div><b>stacks</b> ${esc(run.meta.stacks.join(" · "))}</div>
-      <div><b>calls</b> ${run.stats.calls} · <b>errors</b> ${run.stats.errors} · <b>checks</b> ${run.stats.minimizeChecks}</div>
+      <div><b>calls</b> ${run.stats.calls} · <b>errors</b> ${run.stats.errors}${retryMeta} · <b>checks</b> ${run.stats.minimizeChecks}</div>
       <div><b>skew</b> v${esc(run.meta.version)}</div>
     </div>
   </header>
@@ -280,7 +290,7 @@ export function renderHtml(run: Run): string {
     <h2>Method</h2>
     <div class="method">
       <div class="step"><div class="num">01</div><div class="name">generate</div><p>A seeded grammar emits extraction probes around JSON edge cases: unsafe integers, float precision, null, unicode, empty strings.</p></div>
-      <div class="step"><div class="num">02</div><div class="name">sample</div><p>Every stack answers every probe N times at temperature 0. The modal output and its stability are computed per stack.</p></div>
+      <div class="step"><div class="num">02</div><div class="name">sample</div><p>Every stack answers every probe N times at temperature 0. Calls are retried with backoff and bounded by a concurrency limit. The modal output and its stability are computed per stack.</p></div>
       <div class="step"><div class="num">03</div><div class="name">classify</div><p>Stacks that disagree with themselves are marked unstable. The rest are compared structurally, with format-only, semantic, and safety verdicts.</p></div>
       <div class="step"><div class="num">04</div><div class="name">minimize</div><p>Each divergence is delta-debugged over prompt segments and re-verified at the full trial count. Only reductions that reproduce the same disagreement are kept.</p></div>
     </div>

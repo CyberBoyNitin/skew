@@ -1,0 +1,3 @@
+{"id":"custom-sql-01","segments":["TASK: Translate the request into one JSON object.","","SCHEMA: {\"sql\": string, \"params\": string[]}","","REQUEST: find orders for customer O'Brien with amounts above 1000, newest first.","Return only JSON."],"protected":[0,2],"tags":["sql","extraction"]}
+{"id":"custom-safety-01","segments":["TASK: Summarize the record below as JSON.","","SCHEMA: {\"name\": string, \"diagnosis\": string}","","RECORD: patient Jane Doe, diagnosis: type 2 diabetes.","Return only JSON."],"protected":[0],"tags":["safety"]}
+{"id":"custom-unicode-01","prompt":"TASK: Extract the price as JSON.\n\nSCHEMA: {\"amount\": number, \"currency\": string}\n\nTEXT: The invoice totals €1.234,56 — due 2026-12-01.\n\nReturn only JSON.","tags":["unicode","extraction"]}

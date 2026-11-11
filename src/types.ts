@@ -18,6 +18,7 @@ export interface Runner {
 export interface RunStats {
   calls: number;
   errors: number;
+  retries: number;
   minimizeChecks: number;
 }
 
