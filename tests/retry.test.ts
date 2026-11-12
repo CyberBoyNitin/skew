@@ -44,6 +44,19 @@ class BlockedRunner implements Runner {
   }
 }
 
+class RateLimitedRunner implements Runner {
+  readonly name = "limited";
+  attempts = 0;
+
+  async complete(): Promise<string> {
+    this.attempts += 1;
+    if (this.attempts === 1) {
+      throw new RunnerError("429", { retryAfterMs: 60 });
+    }
+    return '{"ok":true}';
+  }
+}
+
 class TrackingRunner implements Runner {
   readonly name: string;
   private readonly delayMs: number;
@@ -83,6 +96,28 @@ test("retryable failures are retried with backoff", async () => {
   assert.equal(run.stats.errors, 0);
   assert.equal(run.stats.calls, 2);
   assert.equal(run.findings.length, 0);
+});
+
+test("retry-after delays override exponential backoff", async () => {
+  const limited = new RateLimitedRunner();
+  const stable = new StableRunner("stable");
+  const started = performance.now();
+
+  const run = await new Harness({
+    probes: [probeFromSpec({ id: "p", prompt: "hello" })],
+    stacks: [limited, stable],
+    trials: 1,
+    minimize: false,
+    concurrency: 1,
+    retries: 1,
+    retryDelayMs: 1,
+  }).run();
+
+  const elapsed = performance.now() - started;
+  assert.equal(limited.attempts, 2);
+  assert.equal(run.stats.retries, 1);
+  assert.equal(run.stats.errors, 0);
+  assert.ok(elapsed >= 45, `expected a retry-after delay, got ${elapsed}ms`);
 });
 
 test("non-retryable failures stop immediately", async () => {

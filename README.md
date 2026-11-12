@@ -53,6 +53,29 @@ Each finding is reduced to a **3-segment prompt** (from 8–10) and re-verified
 at the full trial count. The outputs in the report are sampled from that
 minimized prompt, so every finding stands on its own.
 
+## Real run
+
+[`docs/real/`](docs/real/) is a live run against two hosted models routed
+through an OpenAI-compatible gateway:
+
+```text
+stacks   gpt-oss-120b, gemini-3.1-flash-lite
+found    3 divergences (0 safety, 0 semantic, 3 format-only) · 0 unstable pairs
+calls    64   errors 0   minimization checks 12
+```
+
+Both models extracted the same values. The divergences were compact vs
+pretty-printed JSON, which still breaks byte-matching consumers. Each finding
+was minimized and verified. The run is recorded, so the full harness and
+minimizer replay offline without the gateway or model access:
+
+```bash
+npm run replay:real
+```
+
+See [`docs/real/README.md`](docs/real/README.md) for the stack versions,
+numbers, and caveats.
+
 ## Why
 
 Evals compare a model to ground truth. `skew` compares stacks *to each other*,
@@ -130,7 +153,8 @@ usage errors.
       "name": "hosted-mini",
       "baseUrl": "https://api.openai.com/v1",
       "model": "gpt-5-mini",
-      "apiKeyEnv": "OPENAI_API_KEY"
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "maxTokens": 512
     },
     {
       "name": "local-qwen",
@@ -145,6 +169,10 @@ usage errors.
 
 Probe files are resolved relative to the config file. Retries apply to transport
 errors plus HTTP 408, 409, 425, 429, and 5xx; other 4xx responses fail fast.
+`maxTokens` caps generation per call (default 512). Lower it for slow local
+models; without a cap, a chatty model can stall a run. Reasoning models may
+spend the cap on hidden reasoning; raise it if the run reports
+`finish_reason=length`.
 
 ## Custom probes
 
@@ -230,6 +258,9 @@ skew run --config <file> [options]  compare live OpenAI-compatible stacks
 - **Bounded concurrency and retries.** A semaphore caps in-flight calls across
   probes, trials, and stacks. Transport failures, 429s, and 5xx responses retry
   with exponential backoff and jitter; deterministic 4xx errors do not.
+  `Retry-After` headers and provider reset timestamps override the backoff.
+- **Output caps.** Every request sends `max_tokens` (default 512) so a chatty
+  model cannot stall a run with unbounded generation.
 - **Record/replay.** Each successful completion is keyed by stack, prompt, and
   trial. Replaying a fixture directory exercises the real harness and minimizer
   without making a network call, which is how the CLI-level replay test works.
@@ -247,6 +278,9 @@ skew run --config <file> [options]  compare live OpenAI-compatible stacks
 - Recordings contain successful completions only. A replayed run must use the
   same probe set, seed, trial count, and minimization budget; otherwise a prompt
   can miss the fixture and fail loudly.
+- Hosted free tiers rate-limit aggressively. The retry budget and
+  `retryMaxDelayMs` should be large enough to wait out a reset; the committed
+  real run uses one in-flight request and four retries.
 - Only the OpenAI chat-completions request/response shape is supported.
 - The demo stacks are scripted. Demo findings demonstrate the classifier and
   minimizer; they are not claims about any real model.
