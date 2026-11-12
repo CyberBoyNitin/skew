@@ -79,4 +79,5 @@ export interface HttpRunnerOptions {
   apiKey?: string;
   temperature?: number;
   timeoutMs?: number;
+  maxTokens?: number;
 }

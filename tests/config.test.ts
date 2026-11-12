@@ -60,3 +60,18 @@ test("probe generation can be disabled for custom-only suites", () => {
   const config = normalizeConfig({ stacks: STACKS, probes: 0 });
   assert.equal(config.probes, 0);
 });
+
+test("maxTokens is parsed and validated", () => {
+  const config = normalizeConfig({
+    stacks: [{ ...STACKS[0]!, maxTokens: 64 }, STACKS[1]!],
+  });
+  assert.equal(config.stacks[0]!.maxTokens, 64);
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: [{ ...STACKS[0]!, maxTokens: 0 }, STACKS[1]!],
+      }),
+    /maxTokens/,
+  );
+});

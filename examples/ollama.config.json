@@ -1,0 +1,38 @@
+{
+  "seed": 7,
+  "probes": 6,
+  "trials": 3,
+  "minStability": 0.8,
+  "minimize": true,
+  "maxChecks": 8,
+  "concurrency": 2,
+  "retries": 2,
+  "retryDelayMs": 1000,
+  "retryMaxDelayMs": 8000,
+  "stacks": [
+    {
+      "name": "qwen-coder-3b",
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "model": "qwen2.5-coder:3b",
+      "temperature": 0,
+      "timeoutMs": 180000,
+      "maxTokens": 512
+    },
+    {
+      "name": "llama-3.2-3b",
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "model": "llama3.2:latest",
+      "temperature": 0,
+      "timeoutMs": 180000,
+      "maxTokens": 512
+    },
+    {
+      "name": "phi-3-mini",
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "model": "phi3:mini",
+      "temperature": 0,
+      "timeoutMs": 180000,
+      "maxTokens": 512
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "seed": 11,
+  "probes": 4,
+  "trials": 3,
+  "minStability": 0.8,
+  "minimize": true,
+  "maxChecks": 4,
+  "concurrency": 1,
+  "retries": 4,
+  "retryDelayMs": 2000,
+  "retryMaxDelayMs": 60000,
+  "stacks": [
+    {
+      "name": "gpt-oss-120b",
+      "baseUrl": "http://127.0.0.1:20128/v1",
+      "model": "agy/gpt-oss-120b-medium",
+      "apiKeyEnv": "OMNIROUTE_API_KEY",
+      "temperature": 0,
+      "timeoutMs": 120000,
+      "maxTokens": 512
+    },
+    {
+      "name": "gemini-3.1-flash-lite",
+      "baseUrl": "http://127.0.0.1:20128/v1",
+      "model": "agy/gemini-3.1-flash-lite",
+      "apiKeyEnv": "OMNIROUTE_API_KEY",
+      "temperature": 0,
+      "timeoutMs": 120000,
+      "maxTokens": 512
+    }
+  ]
+}

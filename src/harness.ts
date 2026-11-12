@@ -265,7 +265,7 @@ export class Harness {
         lastError = error;
         if (attempt >= attempts - 1 || !isRetryable(error)) break;
         this.stats.retries += 1;
-        await sleep(this.retryDelay(attempt));
+        await sleep(this.retryDelay(attempt, error));
       }
     }
 
@@ -273,7 +273,10 @@ export class Harness {
     throw lastError;
   }
 
-  private retryDelay(attempt: number): number {
+  private retryDelay(attempt: number, error: unknown): number {
+    if (error instanceof RunnerError && error.retryAfterMs !== undefined) {
+      return Math.min(error.retryAfterMs + Math.random() * 500, 120_000);
+    }
     const base = Math.min(
       this.retryDelayMs * 2 ** attempt,
       this.retryMaxDelayMs,

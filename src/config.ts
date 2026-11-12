@@ -13,6 +13,7 @@ export interface StackConfig {
   apiKeyEnv?: string;
   temperature?: number;
   timeoutMs?: number;
+  maxTokens?: number;
 }
 
 export interface SkewConfig {
@@ -182,6 +183,9 @@ export function buildRunners(config: SkewConfig): Runner[] {
         ? { temperature: stack.temperature }
         : {}),
       ...(stack.timeoutMs !== undefined ? { timeoutMs: stack.timeoutMs } : {}),
+      ...(stack.maxTokens !== undefined
+        ? { maxTokens: stack.maxTokens }
+        : {}),
     };
 
     return new HttpRunner(options);
@@ -210,6 +214,7 @@ function normalizeStack(
   const apiKeyEnv = optionalString(record, "apiKeyEnv", label);
   const temperature = optionalNumber(record, "temperature", label, 0, 2);
   const timeoutMs = optionalInteger(record, "timeoutMs", label, 1);
+  const maxTokens = optionalInteger(record, "maxTokens", label, 1);
 
   return {
     name,
@@ -219,6 +224,7 @@ function normalizeStack(
     ...(apiKeyEnv !== undefined ? { apiKeyEnv } : {}),
     ...(temperature !== undefined ? { temperature } : {}),
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    ...(maxTokens !== undefined ? { maxTokens } : {}),
   };
 }
 

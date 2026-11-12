@@ -2,11 +2,16 @@ import type { HttpRunnerOptions, Runner } from "./types.ts";
 
 export class RunnerError extends Error {
   readonly retryable: boolean;
+  readonly retryAfterMs: number | undefined;
 
-  constructor(message: string, options: { retryable?: boolean } = {}) {
+  constructor(
+    message: string,
+    options: { retryable?: boolean; retryAfterMs?: number } = {},
+  ) {
     super(message);
     this.name = "RunnerError";
     this.retryable = options.retryable ?? true;
+    this.retryAfterMs = options.retryAfterMs;
   }
 }
 
@@ -17,6 +22,7 @@ export class HttpRunner implements Runner {
   private readonly apiKey: string | undefined;
   private readonly temperature: number;
   private readonly timeoutMs: number;
+  private readonly maxTokens: number;
 
   constructor(options: HttpRunnerOptions) {
     this.name = options.name;
@@ -25,6 +31,7 @@ export class HttpRunner implements Runner {
     this.apiKey = options.apiKey;
     this.temperature = options.temperature ?? 0;
     this.timeoutMs = options.timeoutMs ?? 90_000;
+    this.maxTokens = options.maxTokens ?? 512;
   }
 
   async complete(prompt: string, trial = 0): Promise<string> {
@@ -44,6 +51,7 @@ export class HttpRunner implements Runner {
           model: this.model,
           messages: [{ role: "user", content: prompt }],
           temperature: this.temperature,
+          max_tokens: this.maxTokens,
           seed: trial,
         }),
         signal: AbortSignal.timeout(this.timeoutMs),
@@ -57,9 +65,16 @@ export class HttpRunner implements Runner {
 
     const text = await response.text();
     if (!response.ok) {
+      const retryAfterMs = parseRetryAfter(
+        response.headers.get("retry-after"),
+        text,
+      );
       throw new RunnerError(
         `${this.name}: HTTP ${response.status}: ${text.slice(0, 400)}`,
-        { retryable: isRetryableStatus(response.status) },
+        {
+          retryable: isRetryableStatus(response.status),
+          ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+        },
       );
     }
 
@@ -75,8 +90,13 @@ export class HttpRunner implements Runner {
 
     const content = extractContent(body);
     if (content === null) {
+      const finishReason = extractFinishReason(body);
+      const hint =
+        finishReason === "length"
+          ? ` (finish_reason=length; raise maxTokens above ${this.maxTokens})`
+          : "";
       throw new RunnerError(
-        `${this.name}: unexpected response shape: ${text.slice(0, 300)}`,
+        `${this.name}: no completion content${hint}: ${text.slice(0, 300)}`,
         { retryable: false },
       );
     }
@@ -92,6 +112,74 @@ function isRetryableStatus(status: number): boolean {
     status === 429 ||
     status >= 500
   );
+}
+
+/**
+ * Providers signal rate limits in different places: a Retry-After header, an
+ * ISO timestamp, or a reset_seconds field. Honor all of them when present.
+ */
+export function parseRetryAfter(
+  header: string | null,
+  body: string,
+): number | undefined {
+  const fromHeader = parseRetryAfterValue(header);
+  if (fromHeader !== undefined) return fromHeader;
+
+  try {
+    const parsed: unknown = JSON.parse(body);
+    const record =
+      typeof parsed === "object" && parsed !== null
+        ? (parsed as Record<string, unknown>)
+        : undefined;
+    if (!record) return undefined;
+
+    const nested =
+      typeof record.error === "object" && record.error !== null
+        ? (record.error as Record<string, unknown>)
+        : undefined;
+
+    for (const source of [record, nested]) {
+      if (!source) continue;
+      const seconds = source.reset_seconds;
+      if (typeof seconds === "number" && Number.isFinite(seconds)) {
+        return clampRetryAfter(seconds * 1000);
+      }
+      const raw = source.retry_after;
+      if (typeof raw === "string") {
+        const parsedDate = Date.parse(raw);
+        if (Number.isFinite(parsedDate)) {
+          return clampRetryAfter(parsedDate - Date.now());
+        }
+      }
+    }
+  } catch {
+    // Body was not JSON; the header is the only signal.
+  }
+
+  return undefined;
+}
+
+function parseRetryAfterValue(value: string | null): number | undefined {
+  if (value === null || value.trim() === "") return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return clampRetryAfter(seconds * 1000);
+  const date = Date.parse(value);
+  if (Number.isFinite(date)) return clampRetryAfter(date - Date.now());
+  return undefined;
+}
+
+function clampRetryAfter(ms: number): number {
+  return Math.min(Math.max(Math.round(ms), 0), 300_000);
+}
+
+function extractFinishReason(body: unknown): string | null {
+  if (typeof body !== "object" || body === null) return null;
+  const choices = (body as { choices?: unknown }).choices;
+  if (!Array.isArray(choices) || choices.length === 0) return null;
+  const choice = choices[0];
+  if (typeof choice !== "object" || choice === null) return null;
+  const reason = (choice as { finish_reason?: unknown }).finish_reason;
+  return typeof reason === "string" ? reason : null;
 }
 
 function extractContent(body: unknown): string | null {
