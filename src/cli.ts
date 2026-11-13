@@ -20,7 +20,7 @@ const USAGE = `skew v${VERSION} · differential fuzzing for LLM stacks
 
 usage
   skew demo [options]                 run the offline scripted demo
-  skew run --config <file> [options]  compare live OpenAI-compatible stacks
+  skew run --config <file> [options]  compare live OpenAI or Anthropic stacks
 
 options
   -o, --out <dir>        artifact directory (default: runs/<timestamp>)
@@ -41,6 +41,7 @@ examples
   npm run demo
   node src/cli.ts demo --record fixtures/demo
   node src/cli.ts run --config examples/skew.config.json
+  node src/cli.ts run --config examples/tools.config.json
   node src/cli.ts run --config skew.config.json --replay fixtures/run-001
   skew demo --out docs/demo --fail-on semantic
 `;

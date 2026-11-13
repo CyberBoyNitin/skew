@@ -1,0 +1,34 @@
+{
+  "seed": 7,
+  "probes": 4,
+  "trials": 3,
+  "minStability": 0.8,
+  "minimize": true,
+  "maxChecks": 8,
+  "concurrency": 2,
+  "retries": 2,
+  "retryDelayMs": 1000,
+  "retryMaxDelayMs": 8000,
+  "stacks": [
+    {
+      "name": "claude-sonnet",
+      "protocol": "anthropic",
+      "baseUrl": "https://api.anthropic.com/v1",
+      "model": "claude-sonnet-4-5",
+      "apiKeyEnv": "ANTHROPIC_API_KEY",
+      "temperature": 0,
+      "timeoutMs": 120000,
+      "maxTokens": 512
+    },
+    {
+      "name": "claude-haiku",
+      "protocol": "anthropic",
+      "baseUrl": "https://api.anthropic.com/v1",
+      "model": "claude-haiku-4-5",
+      "apiKeyEnv": "ANTHROPIC_API_KEY",
+      "temperature": 0,
+      "timeoutMs": 120000,
+      "maxTokens": 512
+    }
+  ]
+}

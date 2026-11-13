@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { analyze, canonical, differenceFingerprint } from "../src/core.ts";
+import {
+  analyze,
+  canonical,
+  differenceFingerprint,
+  signature,
+} from "../src/core.ts";
 
 test("identical outputs produce no divergence", () => {
   assert.equal(analyze(['{"a":1}'], ['{"a":1}'])?.verdict, null);
@@ -46,6 +51,37 @@ test("big integers nested in objects stay lossless", () => {
 
 test("empty output sets cannot be compared", () => {
   assert.equal(analyze([], ["x"]), null);
+});
+
+test("format-only fingerprints preserve the JSON payload", () => {
+  const first = differenceFingerprint(
+    "format-only",
+    '{"id":1,"value":"alpha"}',
+    '{\n  "id": 1,\n  "value": "alpha"\n}',
+  );
+  const second = differenceFingerprint(
+    "format-only",
+    '{"id":2,"value":"beta"}',
+    '{\n  "id": 2,\n  "value": "beta"\n}',
+  );
+
+  assert.notEqual(first, second);
+  assert.match(first, /^format-only:json:/);
+});
+
+test("format-only signatures stay grouped across payloads", () => {
+  const first = signature(
+    "format-only",
+    '{"id":1,"value":"alpha"}',
+    '{\n  "id": 1,\n  "value": "alpha"\n}',
+  );
+  const second = signature(
+    "format-only",
+    '{"id":2,"value":"beta"}',
+    '{\n  "id": 2,\n  "value": "beta"\n}',
+  );
+
+  assert.equal(first, second);
 });
 
 test("the disagreement fingerprint ignores fields that agree", () => {

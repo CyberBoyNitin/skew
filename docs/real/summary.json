@@ -1,7 +1,7 @@
 {
   "meta": {
-    "startedAt": "2026-11-12T06:24:17.957Z",
-    "durationS": 238.13,
+    "startedAt": "2026-11-13T06:08:02.638Z",
+    "durationS": 187.48,
     "seed": 11,
     "probeCount": 4,
     "trials": 3,
@@ -9,20 +9,20 @@
       "gpt-oss-120b",
       "gemini-3.1-flash-lite"
     ],
-    "version": "0.3.0",
+    "version": "0.4.0",
     "origin": "live"
   },
   "stats": {
-    "calls": 64,
+    "calls": 52,
     "errors": 0,
     "retries": 0,
-    "minimizeChecks": 12
+    "minimizeChecks": 8
   },
   "counts": {
-    "total": 3,
+    "total": 2,
     "safety": 0,
     "semantic": 0,
-    "format-only": 3
+    "format-only": 2
   },
   "unstable": [],
   "errorSamples": []

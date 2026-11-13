@@ -5,6 +5,7 @@ import { generateProbes } from "../src/generate.ts";
 import { promptOf } from "../src/probe.ts";
 import {
   AlphaStack,
+  AnthropicRunner,
   BetaStack,
   HttpRunner,
   parseRetryAfter,
@@ -151,6 +152,243 @@ test("HttpRunner exposes retry-after on 429", async () => {
         error.retryable &&
         error.retryAfterMs === 7000,
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+const LOOKUP_TOOL = {
+  name: "lookup_customer",
+  description: "Look up a customer by email.",
+  parameters: {
+    type: "object",
+    properties: { email: { type: "string" } },
+    required: ["email"],
+  },
+};
+
+test("HttpRunner sends tools and normalizes native tool calls", async () => {
+  const originalFetch = globalThis.fetch;
+  let init: RequestInit | undefined;
+
+  globalThis.fetch = (async (
+    _input: string | URL | Request,
+    options?: RequestInit,
+  ) => {
+    init = options;
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: "tool_calls",
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_1",
+                  type: "function",
+                  function: {
+                    name: "lookup_customer",
+                    arguments: '{"email":"ada@example.com"}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const runner = new HttpRunner({
+      name: "mock",
+      baseUrl: "http://example.test/v1",
+      model: "mock-1",
+      tools: [LOOKUP_TOOL],
+      toolChoice: "auto",
+    });
+
+    const output = await runner.complete("hi");
+    assert.equal(
+      output,
+      '{"tool_calls":[{"name":"lookup_customer","arguments":{"email":"ada@example.com"}}]}',
+    );
+
+    const body = JSON.parse(String(init?.body)) as {
+      tools: unknown;
+      tool_choice: string;
+    };
+    assert.deepEqual(body.tools, [
+      { type: "function", function: LOOKUP_TOOL },
+    ]);
+    assert.equal(body.tool_choice, "auto");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("AnthropicRunner posts Messages requests and normalizes tool use", async () => {
+  const originalFetch = globalThis.fetch;
+  let url = "";
+  let init: RequestInit | undefined;
+
+  globalThis.fetch = (async (
+    input: string | URL | Request,
+    options?: RequestInit,
+  ) => {
+    url = String(input);
+    init = options;
+    return new Response(
+      JSON.stringify({
+        content: [
+          { type: "text", text: "Sure, looking it up." },
+          {
+            type: "tool_use",
+            id: "toolu_1",
+            name: "lookup_customer",
+            input: { email: "ada@example.com" },
+          },
+        ],
+        stop_reason: "tool_use",
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const runner = new AnthropicRunner({
+      name: "claude",
+      baseUrl: "http://example.test/v1/",
+      model: "claude-test",
+      apiKey: "secret",
+      maxTokens: 256,
+      tools: [LOOKUP_TOOL],
+      toolChoice: "required",
+    });
+
+    const output = await runner.complete("hi", 2);
+    assert.equal(url, "http://example.test/v1/messages");
+    assert.equal(
+      output,
+      '{"text":"Sure, looking it up.","tool_calls":[{"name":"lookup_customer","arguments":{"email":"ada@example.com"}}]}',
+    );
+
+    const headers = new Headers(init?.headers);
+    assert.equal(headers.get("x-api-key"), "secret");
+    assert.equal(headers.get("anthropic-version"), "2023-06-01");
+
+    const body = JSON.parse(String(init?.body)) as {
+      max_tokens: number;
+      tools: unknown;
+      tool_choice: unknown;
+    };
+    assert.equal(body.max_tokens, 256);
+    assert.deepEqual(body.tools, [
+      {
+        name: LOOKUP_TOOL.name,
+        description: LOOKUP_TOOL.description,
+        input_schema: LOOKUP_TOOL.parameters,
+      },
+    ]);
+    assert.deepEqual(body.tool_choice, { type: "any" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("AnthropicRunner explains max_tokens stops", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        content: [],
+        stop_reason: "max_tokens",
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )) as typeof fetch;
+
+  try {
+    const runner = new AnthropicRunner({
+      name: "claude",
+      baseUrl: "https://api.anthropic.test/v1",
+      model: "claude-test",
+      maxTokens: 64,
+    });
+
+    await assert.rejects(
+      () => runner.complete("hi"),
+      /stop_reason=max_tokens; raise maxTokens above 64/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("AnthropicRunner exposes retry-after on 429", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        type: "error",
+        error: { type: "rate_limit_error", message: "slow down" },
+      }),
+      {
+        status: 429,
+        headers: { "content-type": "application/json", "retry-after": "3" },
+      },
+    )) as typeof fetch;
+
+  try {
+    const runner = new AnthropicRunner({
+      name: "claude",
+      baseUrl: "https://api.anthropic.test/v1",
+      model: "claude-test",
+    });
+
+    await assert.rejects(
+      () => runner.complete("hi"),
+      (error: unknown) =>
+        error instanceof RunnerError &&
+        error.retryable &&
+        error.retryAfterMs === 3000,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("toolChoice none omits tool definitions", async () => {
+  const originalFetch = globalThis.fetch;
+  let init: RequestInit | undefined;
+  globalThis.fetch = (async (
+    _input: string | URL | Request,
+    options?: RequestInit,
+  ) => {
+    init = options;
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { role: "assistant", content: "ok" } }],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const runner = new HttpRunner({
+      name: "mock",
+      baseUrl: "http://example.test/v1",
+      model: "mock-1",
+      tools: [LOOKUP_TOOL],
+      toolChoice: "none",
+    });
+    await runner.complete("hi");
+
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    assert.equal(body.tools, undefined);
+    assert.equal(body.tool_choice, undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }

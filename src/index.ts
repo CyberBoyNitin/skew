@@ -30,6 +30,7 @@ export type { ReplayManifest } from "./replay.ts";
 export { Semaphore } from "./semaphore.ts";
 export {
   AlphaStack,
+  AnthropicRunner,
   BetaStack,
   DeltaStack,
   GammaStack,
@@ -38,6 +39,8 @@ export {
   demoStacks,
   parseRetryAfter,
 } from "./runners.ts";
+export { formatToolOutput, parseToolArguments } from "./tools.ts";
+export type { NormalizedToolCall } from "./tools.ts";
 export {
   buildRunners,
   DEFAULTS,
@@ -55,10 +58,13 @@ export type {
   Finding,
   HttpRunnerOptions,
   PairAnalysis,
+  Protocol,
   Run,
   RunMeta,
   Runner,
   RunStats,
+  ToolChoice,
+  ToolDefinition,
   UnstableGroup,
   Verdict,
 } from "./types.ts";

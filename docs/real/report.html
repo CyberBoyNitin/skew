@@ -118,22 +118,22 @@ footer{margin-top:56px;border-top:1px solid var(--line);padding-top:18px;display
         <span class="badge">seed 11</span>
         <span class="badge">4 probes</span>
         <span class="badge">3 trials</span>
-        <span class="badge">238.13s</span>
+        <span class="badge">187.48s</span>
       </div>
     </div>
     <div class="runmeta">
-      <div><b>run</b> 2026-11-12T06:24:17.957Z</div>
+      <div><b>run</b> 2026-11-13T06:08:02.638Z</div>
       <div><b>stacks</b> gpt-oss-120b · gemini-3.1-flash-lite</div>
-      <div><b>calls</b> 64 · <b>errors</b> 0 · <b>checks</b> 12</div>
-      <div><b>skew</b> v0.3.0</div>
+      <div><b>calls</b> 52 · <b>errors</b> 0 · <b>checks</b> 8</div>
+      <div><b>skew</b> v0.4.0</div>
     </div>
   </header>
 
   <div class="stats">
-    <div class="stat total"><div class="n">3</div><div class="k">divergences</div></div>
+    <div class="stat total"><div class="n">2</div><div class="k">divergences</div></div>
     <div class="stat safety"><div class="n">0</div><div class="k">safety</div></div>
     <div class="stat semantic"><div class="n">0</div><div class="k">semantic</div></div>
-    <div class="stat format"><div class="n">3</div><div class="k">format-only</div></div>
+    <div class="stat format"><div class="n">2</div><div class="k">format-only</div></div>
     <div class="stat unstable"><div class="n">0</div><div class="k">unstable pairs</div></div>
   </div>
   <div class="bar"><i style="width:0.00%;background:var(--red)"></i><i style="width:0.00%;background:var(--amber)"></i><i style="width:100.00%;background:var(--blue)"></i></div>
@@ -144,68 +144,25 @@ footer{margin-top:56px;border-top:1px solid var(--line);padding-top:18px;display
     <article class="finding v-format-only">
   <div class="f-top">
     <span class="chip format-only">format-only</span>
-    <span class="fid">p000</span>
-    <span class="pair">gpt-oss-120b <i>vs</i> gemini-3.1-flash-lite</span>
-    <span class="fstat">stability 1.00 / 1.00</span>
-  </div>
-  <div class="f-meta">
-    <span>9 → 4 segments</span>
-    <span>4 checks</span>
-    <span class="ok">verified</span>
-    <span>cluster ×3</span>
-    <span class="tag">edge:unicode</span>
-  </div>
-  <div class="f-block">
-    <div class="f-label"><span>minimized repro</span><span>245 chars</span></div>
-    <pre>You are a precise extraction service. Reply with exactly one JSON object and no prose.
-Consumers may compare the output byte-for-byte across providers.
-TASK: Extract the fields below into a JSON object with keys &quot;id&quot;, &quot;value&quot;, &quot;label&quot;.
-id = 5604</pre>
-    <details><summary>original prompt · 9 segments</summary><pre>You are a precise extraction service. Reply with exactly one JSON object and no prose.
-Consumers may compare the output byte-for-byte across providers.
-The schema is stable; only the values change between requests.
-Downstream consumers expect a single well-formed object.
-TASK: Extract the fields below into a JSON object with keys &quot;id&quot;, &quot;value&quot;, &quot;label&quot;.
-id = 5604
-value = &quot;Ünïcode ☃ 日本語 🚀&quot;
-label = &quot;case-unicode-00&quot;
-Rules: output JSON only. Do not explain your reasoning.</pre></details>
-  </div>
-  <div class="outputs">
-    <div>
-      <div class="f-label"><span>gpt-oss-120b</span><span>observed output</span></div>
-      <pre>{&quot;id&quot;:5604,&quot;value&quot;:null,&quot;label&quot;:null}</pre>
-    </div>
-    <div>
-      <div class="f-label"><span>gemini-3.1-flash-lite</span><span>observed output</span></div>
-      <pre>{
-  &quot;id&quot;: 5604,
-  &quot;value&quot;: null,
-  &quot;label&quot;: null
-}</pre>
-    </div>
-  </div>
-</article>
-<article class="finding v-format-only">
-  <div class="f-top">
-    <span class="chip format-only">format-only</span>
     <span class="fid">p001</span>
     <span class="pair">gpt-oss-120b <i>vs</i> gemini-3.1-flash-lite</span>
     <span class="fstat">stability 1.00 / 1.00</span>
   </div>
   <div class="f-meta">
-    <span>9 → 4 segments</span>
+    <span>9 → 6 segments</span>
     <span>4 checks</span>
     <span class="ok">verified</span>
-    <span>cluster ×3</span>
+    <span>cluster ×2</span>
     <span class="tag">edge:bigint</span>
   </div>
   <div class="f-block">
-    <div class="f-label"><span>minimized repro</span><span>227 chars</span></div>
+    <div class="f-label"><span>minimized repro</span><span>277 chars</span></div>
     <pre>You are a precise extraction service. Reply with exactly one JSON object and no prose.
 The previous batch completed without incident.
 TASK: Extract the fields below into a JSON object with keys &quot;id&quot;, &quot;value&quot;, &quot;label&quot;.
-id = 8591</pre>
+id = 8591
+value = 9007199254740993
+label = &quot;case-bigint-01&quot;</pre>
     <details><summary>original prompt · 9 segments</summary><pre>You are a precise extraction service. Reply with exactly one JSON object and no prose.
 The previous batch completed without incident.
 This request is part of a nightly extraction batch.
@@ -219,14 +176,14 @@ Rules: output JSON only. Do not explain your reasoning.</pre></details>
   <div class="outputs">
     <div>
       <div class="f-label"><span>gpt-oss-120b</span><span>observed output</span></div>
-      <pre>{&quot;id&quot;:8591,&quot;value&quot;:null,&quot;label&quot;:null}</pre>
+      <pre>{&quot;id&quot;:8591,&quot;value&quot;:9007199254740993,&quot;label&quot;:&quot;case-bigint-01&quot;}</pre>
     </div>
     <div>
       <div class="f-label"><span>gemini-3.1-flash-lite</span><span>observed output</span></div>
       <pre>{
   &quot;id&quot;: 8591,
-  &quot;value&quot;: null,
-  &quot;label&quot;: null
+  &quot;value&quot;: 9007199254740993,
+  &quot;label&quot;: &quot;case-bigint-01&quot;
 }</pre>
     </div>
   </div>
@@ -239,20 +196,21 @@ Rules: output JSON only. Do not explain your reasoning.</pre></details>
     <span class="fstat">stability 1.00 / 1.00</span>
   </div>
   <div class="f-meta">
-    <span>8 → 6 segments</span>
+    <span>8 → 7 segments</span>
     <span>4 checks</span>
     <span class="ok">verified</span>
-    <span>cluster ×3</span>
+    <span>cluster ×2</span>
     <span class="tag">edge:null</span><span class="tag">sensitive</span>
   </div>
   <div class="f-block">
-    <div class="f-label"><span>minimized repro</span><span>319 chars</span></div>
+    <div class="f-label"><span>minimized repro</span><span>342 chars</span></div>
     <pre>You are a precise extraction service. Reply with exactly one JSON object and no prose.
-This record was queued by the ingestion worker at 02:14 UTC.
 If a field is absent, leave it absent rather than inventing one.
 TASK: Extract the fields below into a JSON object with keys &quot;id&quot;, &quot;value&quot;, &quot;label&quot;.
 id = 9799
-value = null</pre>
+value = null
+label = &quot;patient-record-03&quot;
+Rules: output JSON only. Do not explain your reasoning.</pre>
     <details><summary>original prompt · 8 segments</summary><pre>You are a precise extraction service. Reply with exactly one JSON object and no prose.
 This record was queued by the ingestion worker at 02:14 UTC.
 If a field is absent, leave it absent rather than inventing one.
@@ -265,11 +223,15 @@ Rules: output JSON only. Do not explain your reasoning.</pre></details>
   <div class="outputs">
     <div>
       <div class="f-label"><span>gpt-oss-120b</span><span>observed output</span></div>
-      <pre>{&quot;id&quot;:9799,&quot;value&quot;:null}</pre>
+      <pre>{&quot;id&quot;:9799,&quot;value&quot;:null,&quot;label&quot;:&quot;patient-record-03&quot;}</pre>
     </div>
     <div>
       <div class="f-label"><span>gemini-3.1-flash-lite</span><span>observed output</span></div>
-      <pre>{&quot;id&quot;: 9799, &quot;value&quot;: null}</pre>
+      <pre>{
+  &quot;id&quot;: 9799,
+  &quot;value&quot;: null,
+  &quot;label&quot;: &quot;patient-record-03&quot;
+}</pre>
     </div>
   </div>
 </article>
@@ -279,7 +241,7 @@ Rules: output JSON only. Do not explain your reasoning.</pre></details>
   <section class="section">
     <h2>Method</h2>
     <div class="method">
-      <div class="step"><div class="num">01</div><div class="name">generate</div><p>A seeded grammar emits extraction probes around JSON edge cases: unsafe integers, float precision, null, unicode, empty strings.</p></div>
+      <div class="step"><div class="num">01</div><div class="name">generate</div><p>A seeded grammar emits extraction probes around JSON edge cases, and custom probe files can add tool-use and safety cases.</p></div>
       <div class="step"><div class="num">02</div><div class="name">sample</div><p>Every stack answers every probe N times at temperature 0. Calls are retried with backoff and bounded by a concurrency limit. The modal output and its stability are computed per stack.</p></div>
       <div class="step"><div class="num">03</div><div class="name">classify</div><p>Stacks that disagree with themselves are marked unstable. The rest are compared structurally, with format-only, semantic, and safety verdicts.</p></div>
       <div class="step"><div class="num">04</div><div class="name">minimize</div><p>Each divergence is delta-debugged over prompt segments and re-verified at the full trial count. Only reductions that reproduce the same disagreement are kept.</p></div>
@@ -294,13 +256,14 @@ Rules: output JSON only. Do not explain your reasoning.</pre></details>
         <li>Minimization uses one trial per stack because the search is call-heavy. Every reduced prompt is re-checked at the full trial count; if it no longer reproduces, the original prompt is kept and the finding is marked unverified.</li>
         <li>Prompts are minimized by removing whole segments (lines and blocks). The minimizer does not rewrite or paraphrase text.</li>
         <li>JSON is compared structurally, with unsafe integers preserved losslessly from the source text. Prose is compared after whitespace normalization.</li>
-        <li>HTTP stacks must speak the OpenAI chat-completions request and response shape.</li>
+        <li>Native tool calls are normalized to <code>{name, arguments}</code>. Provider ids, envelopes, and serialization differences are ignored; tool choice and argument values are compared.</li>
+        <li>Stacks speak either OpenAI chat-completions or the Anthropic Messages API. Provider-specific sampling controls are not compared.</li>
       </ul>
     </div>
   </section>
 
   <footer>
-    <span>skew v0.3.0 · 3 findings · 12 minimization checks</span>
+    <span>skew v0.4.0 · 2 findings · 8 minimization checks</span>
     <span>machine-readable artifacts: findings.jsonl · summary.json</span>
   </footer>
 </div>

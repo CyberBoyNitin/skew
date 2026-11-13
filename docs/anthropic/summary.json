@@ -1,0 +1,29 @@
+{
+  "meta": {
+    "startedAt": "2026-11-13T06:03:41.619Z",
+    "durationS": 240,
+    "seed": 23,
+    "probeCount": 4,
+    "trials": 3,
+    "stacks": [
+      "gpt-oss-120b-openai",
+      "claude-sonnet-anthropic"
+    ],
+    "version": "0.4.0",
+    "origin": "live"
+  },
+  "stats": {
+    "calls": 80,
+    "errors": 0,
+    "retries": 0,
+    "minimizeChecks": 16
+  },
+  "counts": {
+    "total": 4,
+    "safety": 0,
+    "semantic": 0,
+    "format-only": 4
+  },
+  "unstable": [],
+  "errorSamples": []
+}
