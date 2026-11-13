@@ -1,7 +1,9 @@
 # Real run: gpt-oss-120b vs Gemini 3.1 Flash Lite
 
-A live differential run recorded on 2026-11-12 with `skew` 0.3.0. This is a
-single small run, not a benchmark.
+A live differential extraction run recorded on 2026-11-13 with `skew` 0.4.0.
+This is a single small run, not a benchmark. Other runs cover native tool calls
+([`docs/tools/`](../tools/)) and the Anthropic Messages protocol
+([`docs/anthropic/`](../anthropic/)).
 
 ## Setup
 
@@ -22,23 +24,23 @@ It requires the local gateway and `OMNIROUTE_API_KEY`; replay does not.
 ## Result
 
 ```text
-found    3 divergences (0 safety, 0 semantic, 3 format-only) · 0 unstable pairs
-calls    64   errors 0   retries 0   minimization checks 12
-duration 238.13s
+found    2 divergences (0 safety, 0 semantic, 2 format-only) · 0 unstable pairs
+calls    52   errors 0   retries 0   minimization checks 8
+duration 187.48s
 ```
 
 | probe | verdict | segments | reproduced |
 | --- | --- | --- | --- |
-| `p000` | `format-only` | 9 → 4 | verified |
-| `p001` | `format-only` | 9 → 4 | verified |
-| `p003` | `format-only` | 8 → 6 | verified |
+| `p001` | `format-only` | 9 → 6 | verified |
+| `p003` | `format-only` | 8 → 7 | verified |
 
-Every stable pair agreed on the extracted values. The divergence was
+Every stable pair agreed on the extracted values, including the unsafe integer
+`9007199254740993` and the float `0.30000000000000004`. The divergence was
 serialization: `gpt-oss-120b` emitted compact JSON, while Gemini emitted
 pretty-printed JSON. That still breaks consumers that compare bytes or hash
 serialized output.
 
-`p002` produced no divergence.
+`p000` and `p002` produced no divergence.
 
 ## Replay
 
@@ -49,8 +51,8 @@ harness and minimizer offline, without the gateway or model credentials:
 npm run replay:real
 ```
 
-Recorded replay result: the same 3 findings, 64 calls, 12 checks, and 0 errors
-in 0.02s.
+Recorded replay result: the same 2 findings, 52 calls, 8 checks, and 0 errors
+in 0.01s.
 
 ## Files
 
@@ -65,6 +67,6 @@ in 0.02s.
 - One run, four probes, two models. Do not generalize these numbers.
 - The gateway and provider accounts are part of this stack. A different
   route can change output even for the same model name.
-- Generated probes are extraction prompts. Tool calls, long context, and
-  streaming are not covered yet.
+- Generated probes are extraction prompts. This run does not cover tool calls,
+  long context, or streaming.
 - Outputs are shown verbatim, including whitespace differences.

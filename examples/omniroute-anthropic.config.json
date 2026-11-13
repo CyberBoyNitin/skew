@@ -1,0 +1,34 @@
+{
+  "seed": 23,
+  "probes": 4,
+  "trials": 3,
+  "minStability": 0.8,
+  "minimize": true,
+  "maxChecks": 4,
+  "concurrency": 2,
+  "retries": 4,
+  "retryDelayMs": 2000,
+  "retryMaxDelayMs": 60000,
+  "stacks": [
+    {
+      "name": "gpt-oss-120b-openai",
+      "protocol": "openai",
+      "baseUrl": "http://127.0.0.1:20128/v1",
+      "model": "agy/gpt-oss-120b-medium",
+      "apiKeyEnv": "OMNIROUTE_API_KEY",
+      "temperature": 0,
+      "timeoutMs": 120000,
+      "maxTokens": 512
+    },
+    {
+      "name": "claude-sonnet-anthropic",
+      "protocol": "anthropic",
+      "baseUrl": "http://127.0.0.1:20128/v1",
+      "model": "agy/claude-sonnet-4-6",
+      "apiKeyEnv": "OMNIROUTE_API_KEY",
+      "temperature": 0,
+      "timeoutMs": 120000,
+      "maxTokens": 512
+    }
+  ]
+}

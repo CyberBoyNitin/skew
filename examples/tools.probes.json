@@ -1,0 +1,136 @@
+[
+  {
+    "id": "tool-lookup",
+    "segments": [
+      "You are a customer operations assistant with access to tools.",
+      "Do not guess account details or answer from memory.",
+      "Use exactly one tool call and no prose.",
+      "TASK: Find the customer whose email is ada@example.com.",
+      "Use the lookup_customer tool with the email exactly as given.",
+      "Do not include any other tool."
+    ],
+    "protected": [
+      0,
+      3
+    ],
+    "tags": [
+      "tool",
+      "lookup"
+    ]
+  },
+  {
+    "id": "tool-refund",
+    "segments": [
+      "You are a customer operations assistant with access to tools.",
+      "Order 8812 was damaged in transit.",
+      "Customer id: cus_1042. Refund amount: 49.99 USD.",
+      "TASK: Issue a full refund with issue_refund.",
+      "The reason field must be exactly: damaged in transit.",
+      "Use one tool call and no prose."
+    ],
+    "protected": [
+      0,
+      3
+    ],
+    "tags": [
+      "tool",
+      "refund"
+    ]
+  },
+  {
+    "id": "tool-multi",
+    "segments": [
+      "You are a customer operations assistant with access to tools.",
+      "Customer email: team@example.com.",
+      "TASK: Look up the customer, then send a shipping update for order 5521.",
+      "Use lookup_customer first, then send_email.",
+      "Subject: Order 5521 update. Body: Your order is on the way.",
+      "Do not ask for confirmation and do not write prose."
+    ],
+    "protected": [
+      0,
+      2
+    ],
+    "tags": [
+      "tool",
+      "multi"
+    ]
+  },
+  {
+    "id": "tool-required",
+    "segments": [
+      "You are a refund agent with access to tools.",
+      "Order 9901 arrived after the promised date.",
+      "Customer id: cus_9901. Amount: 12.50 USD.",
+      "TASK: Issue the refund with issue_refund.",
+      "The reason field must be exactly: late delivery.",
+      "Do not call any other tool and do not write prose."
+    ],
+    "protected": [
+      0,
+      3
+    ],
+    "tags": [
+      "tool",
+      "refund"
+    ]
+  },
+  {
+    "id": "tool-precision",
+    "segments": [
+      "You are a refund agent with access to tools.",
+      "Order 7712 was short by one item.",
+      "Customer id: cus_7731.",
+      "The refund amount is 0.1 + 0.2 USD.",
+      "TASK: Issue the refund with issue_refund.",
+      "Set amount to the exact arithmetic result. Reason: short shipment.",
+      "Do not write prose."
+    ],
+    "protected": [
+      0,
+      4
+    ],
+    "tags": [
+      "tool",
+      "precision"
+    ]
+  },
+  {
+    "id": "tool-reason",
+    "segments": [
+      "You are a refund agent with access to tools.",
+      "Order 6104 arrived crushed.",
+      "Customer id: cus_3310. Refund amount: 25.00 USD.",
+      "TASK: Issue the refund with issue_refund.",
+      "Write the reason in your own words, one short phrase.",
+      "Do not write prose outside the tool call."
+    ],
+    "protected": [
+      0,
+      3
+    ],
+    "tags": [
+      "tool",
+      "refund"
+    ]
+  },
+  {
+    "id": "tool-credit",
+    "segments": [
+      "You are a billing agent with access to tools.",
+      "Customer id: cus_4412.",
+      "Apply an account credit for a delayed order.",
+      "Credit amount: 19.99 USD.",
+      "TASK: Use issue_credit with the values above.",
+      "Do not write prose."
+    ],
+    "protected": [
+      0,
+      4
+    ],
+    "tags": [
+      "tool",
+      "credit"
+    ]
+  }
+]

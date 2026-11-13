@@ -39,7 +39,7 @@ Seed `7`, 8 probes, 3 trials, four scripted stacks. One run:
 
 ```text
 found    18 divergences (4 safety, 5 semantic, 9 format-only) · 3 unstable pairs
-calls    337   errors 0   minimization checks 140
+calls    375   errors 0   minimization checks 151
 ```
 
 | verdict | count | example |
@@ -49,19 +49,72 @@ calls    337   errors 0   minimization checks 140
 | `format-only` | 9 | same JSON value, compact vs fenced pretty-print |
 | `unstable` | 3 pairs | `gamma` changes its answer between trials |
 
-Each finding is reduced to a **3-segment prompt** (from 8–10) and re-verified
+Each finding is reduced (from 8–10 segments to as few as 3–5) and re-verified
 at the full trial count. The outputs in the report are sampled from that
 minimized prompt, so every finding stands on its own.
 
-## Real run
+## Live runs
 
-[`docs/real/`](docs/real/) is a live run against two hosted models routed
-through an OpenAI-compatible gateway:
+Each is one small run against hosted models, not a benchmark. The recorded
+fixtures replay offline without the gateway or model credentials.
+
+### Native tool calls
+
+[`docs/tools/`](docs/tools/) compares two models on seven tool-use prompts with
+four native tools and `toolChoice: auto`:
 
 ```text
 stacks   gpt-oss-120b, gemini-3.1-flash-lite
-found    3 divergences (0 safety, 0 semantic, 3 format-only) · 0 unstable pairs
-calls    64   errors 0   minimization checks 12
+found    5 divergences (0 safety, 0 semantic, 5 format-only) · 0 unstable pairs
+calls    106   errors 0   minimization checks 20
+```
+
+All five findings had identical tool names and argument values. The difference
+was the order of keys inside `arguments`; canonical comparison classifies those
+as format-only. They still matter to consumers that hash or byte-diff serialized
+tool calls. This run found no stable semantic tool-argument disagreement, and
+two probes produced no divergence at all. Findings were minimized where
+possible and re-verified.
+
+```bash
+npm run replay:tools
+```
+
+See [`docs/tools/README.md`](docs/tools/README.md) for the tool definitions,
+outputs, and caveats.
+
+### Anthropic Messages
+
+[`docs/anthropic/`](docs/anthropic/) compares an OpenAI chat-completions stack
+with an Anthropic Messages stack:
+
+```text
+stacks   gpt-oss-120b-openai, claude-sonnet-anthropic
+found    4 divergences (0 safety, 0 semantic, 4 format-only) · 0 unstable pairs
+calls    80   errors 0   minimization checks 16
+```
+
+Both protocols returned the same values on all four probes, including an unsafe
+integer, a float, unicode, and null. The differences were compact vs
+pretty-printed JSON and one fenced JSON block. The adapter normalized both
+protocols into the same text envelope before comparison.
+
+```bash
+npm run replay:anthropic
+```
+
+See [`docs/anthropic/README.md`](docs/anthropic/README.md) for the config,
+outputs, and caveats.
+
+### Extraction
+
+[`docs/real/`](docs/real/) compares two hosted models on generated extraction
+probes through an OpenAI-compatible gateway:
+
+```text
+stacks   gpt-oss-120b, gemini-3.1-flash-lite
+found    2 divergences (0 safety, 0 semantic, 2 format-only) · 0 unstable pairs
+calls    52   errors 0   minimization checks 8
 ```
 
 Both models extracted the same values. The divergences were compact vs
@@ -90,9 +143,16 @@ The hard part is not generating prompts. It is making the result trustworthy:
   unsafe integers preserved exactly from the source text. `0.30000000000000004`
   and `0.3` are not the same value, and neither are `9007199254740993` and
   `9007199254740992`.
+- **Native tool calls.** OpenAI and Anthropic tool calls are normalized to the
+  same `{name, arguments}` shape, so tool choice and arguments can be compared
+  across protocols. Provider ids and envelopes are ignored.
+- **Two wire protocols.** OpenAI chat-completions and Anthropic Messages stacks
+  run through the same sampler, classifier, minimizer, and replay format.
 - **Fingerprint-preserving minimization.** Delta debugging keeps reducing a
   prompt only while the *same* disagreement survives. A prompt that collapses
-  into a different error is rejected, and the original is kept.
+  into a different error is rejected, and the original is kept. Format-only
+  findings also preserve the parsed JSON payload, so minimization cannot
+  collapse a data-rich output into `{}`.
 - **A failure taxonomy.** `format-only`, `semantic`, `safety`, `unstable` —
   each implies a different fix.
 - **Runs that survive real providers.** Calls are retried with exponential
@@ -103,10 +163,11 @@ The hard part is not generating prompts. It is making the result trustworthy:
 
 1. **Generate** — a seeded grammar emits extraction probes around edge cases:
    unsafe integers, float precision, null, unicode, empty strings, escaped
-   characters, dates, booleans.
+   characters, dates, booleans. Custom probe files can add native tool tasks.
 2. **Sample** — every stack answers every probe N times at temperature 0, with
-   retries and a concurrency cap. The modal output and its stability are
-   computed per stack.
+   retries and a concurrency cap. OpenAI chat-completions and Anthropic Messages
+   stacks share the same harness. The modal output and its stability are computed
+   per stack.
 3. **Classify** — stacks that disagree with themselves are marked unstable.
    Stable disagreements are compared structurally and labeled.
 4. **Minimize** — ddmin removes prompt segments while the disagreement
@@ -167,6 +228,36 @@ usage errors.
 
 `apiKeyEnv` is read from the environment. Prefer it over inline `apiKey`.
 
+`protocol` is `"openai"` (default) or `"anthropic"`. An Anthropic stack's
+`baseUrl` should include the version, for example
+`https://api.anthropic.com/v1`; `skew` appends `/messages`.
+
+Define native tools once at the top level. Every stack receives the same
+definitions, which keeps the comparison controlled:
+
+```json
+{
+  "tools": [
+    {
+      "name": "lookup_customer",
+      "description": "Look up a customer by email.",
+      "parameters": {
+        "type": "object",
+        "properties": { "email": { "type": "string" } },
+        "required": ["email"]
+      }
+    }
+  ],
+  "toolChoice": "auto"
+}
+```
+
+`toolChoice` accepts `auto`, `none`, or `required`. `none` suppresses tool
+definitions for both protocols. Calls are normalized to
+`{tool_calls: [{name, arguments}]}` before comparison; refusals and prose stay
+visible as text. See [`examples/tools.config.json`](examples/tools.config.json)
+for a complete run.
+
 Probe files are resolved relative to the config file. Retries apply to transport
 errors plus HTTP 408, 409, 425, 429, and 5xx; other 4xx responses fail fast.
 `maxTokens` caps generation per call (default 512). Lower it for slow local
@@ -186,11 +277,11 @@ as JSONL:
     {
       "id": "tool-01",
       "segments": [
-        "TASK: Choose one tool for the request.",
-        "TOOLS: search, refund, escalate",
-        "REQUEST: where is my order?"
+        "TASK: Issue a refund for order 8812.",
+        "Customer: cus_1042. Amount: 49.99 USD.",
+        "Use issue_refund. Reason: damaged in transit."
       ],
-      "protected": [0, 1],
+      "protected": [0],
       "tags": ["tool"]
     }
   ],
@@ -227,7 +318,7 @@ successful completions only; a replay miss is a hard, non-retryable error.
 
 ```text
 skew demo [options]                 run the offline scripted demo
-skew run --config <file> [options]  compare live OpenAI-compatible stacks
+skew run --config <file> [options]  compare live OpenAI or Anthropic stacks
 
 -o, --out <dir>        artifact directory (default: runs/<timestamp>)
     --seed <n>         generator seed (default: 7)
@@ -259,6 +350,12 @@ skew run --config <file> [options]  compare live OpenAI-compatible stacks
   probes, trials, and stacks. Transport failures, 429s, and 5xx responses retry
   with exponential backoff and jitter; deterministic 4xx errors do not.
   `Retry-After` headers and provider reset timestamps override the backoff.
+- **Protocol adapters.** One runner speaks OpenAI chat completions; another
+  speaks Anthropic Messages. Both return the same text or tool-call envelope, so
+  classification, minimization, and replay do not branch by provider.
+- **Tool-call normalization.** OpenAI argument strings and Anthropic `input`
+  objects are parsed into the same shape. Unsafe integers in arguments stay
+  lossless; provider tool ids are discarded.
 - **Output caps.** Every request sends `max_tokens` (default 512) so a chatty
   model cannot stall a run with unbounded generation.
 - **Record/replay.** Each successful completion is keyed by stack, prompt, and
@@ -277,11 +374,19 @@ skew run --config <file> [options]  compare live OpenAI-compatible stacks
   rewrite text. Custom probes are compared as-is, with no ground-truth answer.
 - Recordings contain successful completions only. A replayed run must use the
   same probe set, seed, trial count, and minimization budget; otherwise a prompt
-  can miss the fixture and fail loudly.
+  can miss the fixture and fail loudly. Tool definitions live in the config, so
+  replay with the same config.
+- Anthropic Messages has no seed parameter. OpenAI stacks send the trial index
+  as a seed; Anthropic stacks rely on repeated sampling for stability.
 - Hosted free tiers rate-limit aggressively. The retry budget and
-  `retryMaxDelayMs` should be large enough to wait out a reset; the committed
-  real run uses one in-flight request and four retries.
-- Only the OpenAI chat-completions request/response shape is supported.
+  `retryMaxDelayMs` should be large enough to wait out a reset; the extraction
+  run uses one in-flight request and four retries.
+- Only non-streaming OpenAI chat-completions and Anthropic Messages are
+  supported. Tool-result loops, streaming deltas, and provider-native structured
+  outputs are not covered yet.
+- Tool definitions are global to a run: every stack sees the same tools and
+  `toolChoice`. Comparing stacks with intentionally different tool schemas is not
+  supported yet.
 - The demo stacks are scripted. Demo findings demonstrate the classifier and
   minimizer; they are not claims about any real model.
 

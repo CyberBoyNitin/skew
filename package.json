@@ -1,6 +1,6 @@
 {
   "name": "skew-cli",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Differential fuzzing for LLM stacks: find, classify, and minimize behavioral divergences.",
   "type": "module",
   "bin": {
@@ -27,7 +27,11 @@
     "demo": "node src/cli.ts demo",
     "real:ollama": "node src/cli.ts run --config examples/ollama.config.json",
     "real:omniroute": "node src/cli.ts run --config examples/omniroute.config.json",
+    "real:tools": "node src/cli.ts run --config examples/tools.config.json",
+    "real:anthropic": "node src/cli.ts run --config examples/omniroute-anthropic.config.json",
     "replay:real": "node src/cli.ts run --config examples/omniroute.config.json --replay docs/real/fixtures",
+    "replay:tools": "node src/cli.ts run --config examples/tools.config.json --replay docs/tools/fixtures",
+    "replay:anthropic": "node src/cli.ts run --config examples/omniroute-anthropic.config.json --replay docs/anthropic/fixtures",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test \"tests/*.test.ts\"",

@@ -2,13 +2,20 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { normalizeProbeSpec } from "./probes.ts";
 import type { ProbeSpec } from "./probes.ts";
-import { HttpRunner } from "./runners.ts";
-import type { HttpRunnerOptions, Runner } from "./types.ts";
+import { AnthropicRunner, HttpRunner } from "./runners.ts";
+import type {
+  HttpRunnerOptions,
+  Protocol,
+  Runner,
+  ToolChoice,
+  ToolDefinition,
+} from "./types.ts";
 
 export interface StackConfig {
   name: string;
   baseUrl: string;
   model: string;
+  protocol: Protocol;
   apiKey?: string;
   apiKeyEnv?: string;
   temperature?: number;
@@ -29,6 +36,8 @@ export interface SkewConfig {
   retries: number;
   retryDelayMs: number;
   retryMaxDelayMs: number;
+  tools: ToolDefinition[];
+  toolChoice?: ToolChoice;
   stacks: StackConfig[];
 }
 
@@ -129,6 +138,9 @@ export function normalizeConfig(
     throw new Error("config.stacks must be an array");
   }
 
+  const tools = normalizeTools(root.tools);
+  const toolChoice = normalizeToolChoice(root.toolChoice, tools);
+
   const stacks = rawStacks.map((value, index) =>
     normalizeStack(asRecord(value, `config.stacks[${index}]`), index),
   );
@@ -158,6 +170,8 @@ export function normalizeConfig(
     retries,
     retryDelayMs,
     retryMaxDelayMs,
+    tools,
+    ...(toolChoice !== undefined ? { toolChoice } : {}),
     stacks,
   };
 }
@@ -186,9 +200,15 @@ export function buildRunners(config: SkewConfig): Runner[] {
       ...(stack.maxTokens !== undefined
         ? { maxTokens: stack.maxTokens }
         : {}),
+      ...(config.tools.length > 0 ? { tools: config.tools } : {}),
+      ...(config.toolChoice !== undefined
+        ? { toolChoice: config.toolChoice }
+        : {}),
     };
 
-    return new HttpRunner(options);
+    return stack.protocol === "anthropic"
+      ? new AnthropicRunner(options)
+      : new HttpRunner(options);
   });
 }
 
@@ -212,7 +232,14 @@ function normalizeStack(
 
   const apiKey = optionalString(record, "apiKey", label);
   const apiKeyEnv = optionalString(record, "apiKeyEnv", label);
-  const temperature = optionalNumber(record, "temperature", label, 0, 2);
+  const protocol = normalizeProtocol(record.protocol, label);
+  const temperature = optionalNumber(
+    record,
+    "temperature",
+    label,
+    0,
+    protocol === "anthropic" ? 1 : 2,
+  );
   const timeoutMs = optionalInteger(record, "timeoutMs", label, 1);
   const maxTokens = optionalInteger(record, "maxTokens", label, 1);
 
@@ -220,12 +247,67 @@ function normalizeStack(
     name,
     baseUrl,
     model,
+    protocol,
     ...(apiKey !== undefined ? { apiKey } : {}),
     ...(apiKeyEnv !== undefined ? { apiKeyEnv } : {}),
     ...(temperature !== undefined ? { temperature } : {}),
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     ...(maxTokens !== undefined ? { maxTokens } : {}),
   };
+}
+
+function normalizeProtocol(value: unknown, label: string): Protocol {
+  if (value === undefined) return "openai";
+  if (value === "openai" || value === "anthropic") return value;
+  throw new Error(`${label}.protocol must be "openai" or "anthropic"`);
+}
+
+function normalizeTools(value: unknown): ToolDefinition[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error("config.tools must be an array");
+  }
+
+  const names = new Set<string>();
+  return value.map((item, index) => {
+    const label = `config.tools[${index}]`;
+    const record = asRecord(item, label);
+    const name = requiredString(record, "name", label);
+
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) {
+      throw new Error(
+        `${label}.name must be 1-64 characters of letters, digits, "_" or "-"`,
+      );
+    }
+    if (names.has(name)) {
+      throw new Error(`duplicate tool name: ${name}`);
+    }
+    names.add(name);
+
+    const description = requiredString(record, "description", label);
+    const parameters =
+      record.parameters === undefined
+        ? { type: "object", properties: {} }
+        : asRecord(record.parameters, `${label}.parameters`);
+
+    return { name, description, parameters };
+  });
+}
+
+function normalizeToolChoice(
+  value: unknown,
+  tools: readonly ToolDefinition[],
+): ToolChoice | undefined {
+  if (value === undefined) return undefined;
+  if (value !== "auto" && value !== "none" && value !== "required") {
+    throw new Error(
+      'config.toolChoice must be "auto", "none", or "required"',
+    );
+  }
+  if (tools.length === 0) {
+    throw new Error("config.toolChoice requires at least one config.tools entry");
+  }
+  return value;
 }
 
 function asRecord(value: unknown, label: string): Record<string, unknown> {

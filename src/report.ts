@@ -289,7 +289,7 @@ export function renderHtml(run: Run): string {
   <section class="section">
     <h2>Method</h2>
     <div class="method">
-      <div class="step"><div class="num">01</div><div class="name">generate</div><p>A seeded grammar emits extraction probes around JSON edge cases: unsafe integers, float precision, null, unicode, empty strings.</p></div>
+      <div class="step"><div class="num">01</div><div class="name">generate</div><p>A seeded grammar emits extraction probes around JSON edge cases, and custom probe files can add tool-use and safety cases.</p></div>
       <div class="step"><div class="num">02</div><div class="name">sample</div><p>Every stack answers every probe N times at temperature 0. Calls are retried with backoff and bounded by a concurrency limit. The modal output and its stability are computed per stack.</p></div>
       <div class="step"><div class="num">03</div><div class="name">classify</div><p>Stacks that disagree with themselves are marked unstable. The rest are compared structurally, with format-only, semantic, and safety verdicts.</p></div>
       <div class="step"><div class="num">04</div><div class="name">minimize</div><p>Each divergence is delta-debugged over prompt segments and re-verified at the full trial count. Only reductions that reproduce the same disagreement are kept.</p></div>
@@ -304,7 +304,8 @@ export function renderHtml(run: Run): string {
         <li>Minimization uses one trial per stack because the search is call-heavy. Every reduced prompt is re-checked at the full trial count; if it no longer reproduces, the original prompt is kept and the finding is marked unverified.</li>
         <li>Prompts are minimized by removing whole segments (lines and blocks). The minimizer does not rewrite or paraphrase text.</li>
         <li>JSON is compared structurally, with unsafe integers preserved losslessly from the source text. Prose is compared after whitespace normalization.</li>
-        <li>HTTP stacks must speak the OpenAI chat-completions request and response shape.</li>
+        <li>Native tool calls are normalized to <code>{name, arguments}</code>. Provider ids, envelopes, and serialization differences are ignored; tool choice and argument values are compared.</li>
+        <li>Stacks speak either OpenAI chat-completions or the Anthropic Messages API. Provider-specific sampling controls are not compared.</li>
       </ul>
     </div>
   </section>

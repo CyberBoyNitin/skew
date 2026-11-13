@@ -2,6 +2,16 @@ export type Verdict = "format-only" | "semantic" | "safety" | "unstable";
 
 export type DivergenceVerdict = Exclude<Verdict, "unstable">;
 
+export type Protocol = "openai" | "anthropic";
+
+export type ToolChoice = "auto" | "none" | "required";
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
 export interface PairAnalysis {
   verdict: Verdict | null;
   stabilityA: number;
@@ -80,4 +90,6 @@ export interface HttpRunnerOptions {
   temperature?: number;
   timeoutMs?: number;
   maxTokens?: number;
+  tools?: ToolDefinition[];
+  toolChoice?: ToolChoice;
 }

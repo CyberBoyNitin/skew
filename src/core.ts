@@ -199,7 +199,10 @@ export function signature(
   outputA: string,
   outputB: string,
 ): string {
-  const fingerprint = differenceFingerprint(verdict, outputA, outputB);
+  const fingerprint =
+    verdict === "format-only"
+      ? "format-only"
+      : differenceFingerprint(verdict, outputA, outputB);
   const digest = createHash("sha1")
     .update(fingerprint)
     .digest("hex")
@@ -218,7 +221,16 @@ export function differenceFingerprint(
   outputA: string,
   outputB: string,
 ): string {
-  if (verdict === "format-only") return "format-only";
+  if (verdict === "format-only") {
+    const a = parseJson(outputA);
+    const b = parseJson(outputB);
+    if (!a.ok || !b.ok) return "format-only";
+    const digest = createHash("sha1")
+      .update(stableStringify(a.value))
+      .digest("hex")
+      .slice(0, 10);
+    return `format-only:json:${digest}`;
+  }
   if (verdict === "safety") return "safety";
   if (verdict === "unstable") return "unstable";
 
