@@ -1,10 +1,14 @@
+import { runAgent } from "./agent.ts";
 import { analyze, differenceFingerprint, severityFor, signature } from "./core.ts";
 import { ddmin } from "./minimize.ts";
 import { promptOf, probeWithSegments } from "./probe.ts";
 import type { Probe } from "./probe.ts";
 import { RunnerError } from "./runners.ts";
 import { Semaphore } from "./semaphore.ts";
+import { isAgentRunner } from "./types.ts";
 import type {
+  AgentRunner,
+  AgentText,
   DivergenceVerdict,
   Finding,
   Run,
@@ -28,6 +32,9 @@ export interface HarnessOptions {
   retries?: number;
   retryDelayMs?: number;
   retryMaxDelayMs?: number;
+  maxTurns?: number;
+  toolResults?: Record<string, unknown>;
+  agentText?: AgentText;
 }
 
 interface UnstableAccumulator {
@@ -52,6 +59,9 @@ export class Harness {
   private readonly retries: number;
   private readonly retryDelayMs: number;
   private readonly retryMaxDelayMs: number;
+  private readonly maxTurns: number;
+  private readonly toolResults: Record<string, unknown>;
+  private readonly agentText: AgentText;
   private readonly semaphore: Semaphore;
 
   private readonly stats: RunStats = {
@@ -75,6 +85,24 @@ export class Harness {
       throw new Error("retries must be zero or greater");
     }
 
+    const maxTurns = options.maxTurns ?? 1;
+    if (!Number.isInteger(maxTurns) || maxTurns < 1) {
+      throw new Error("maxTurns must be an integer of at least 1");
+    }
+    const toolResults = options.toolResults ?? {};
+    if (
+      maxTurns > 1 &&
+      (typeof toolResults !== "object" ||
+        toolResults === null ||
+        Object.keys(toolResults).length === 0)
+    ) {
+      throw new Error("agent loops require at least one toolResults entry");
+    }
+    const agentText = options.agentText ?? "final";
+    if (agentText !== "final" && agentText !== "all") {
+      throw new Error('agentText must be "final" or "all"');
+    }
+
     this.probes = options.probes;
     this.stacks = options.stacks;
     this.trials = options.trials ?? 3;
@@ -87,6 +115,9 @@ export class Harness {
     this.retries = options.retries ?? 2;
     this.retryDelayMs = options.retryDelayMs ?? 500;
     this.retryMaxDelayMs = options.retryMaxDelayMs ?? 8000;
+    this.maxTurns = maxTurns;
+    this.toolResults = toolResults;
+    this.agentText = agentText;
     this.semaphore = new Semaphore(options.concurrency ?? 4);
 
     for (const probe of this.probes) {
@@ -197,6 +228,7 @@ export class Harness {
         seed: this.seed,
         probeCount: this.probes.length,
         trials: this.trials,
+        maxTurns: this.maxTurns,
         stacks: this.stacks.map((stack) => stack.name),
         version: this.version,
         origin: this.origin,
@@ -213,7 +245,14 @@ export class Harness {
     prompt: string,
     trials: number,
   ): Promise<string[]> {
-    const key = JSON.stringify([stack.name, prompt, trials]);
+    const key = JSON.stringify([
+      stack.name,
+      prompt,
+      trials,
+      this.maxTurns,
+      this.agentText,
+      this.toolResults,
+    ]);
     const cached = this.cache.get(key);
     if (cached) return cached;
 
@@ -236,7 +275,9 @@ export class Harness {
     trial: number,
   ): Promise<string | null> {
     try {
-      return await this.completeWithRetry(stack, prompt, trial);
+      return this.maxTurns > 1
+        ? await this.agentOutput(stack, prompt, trial)
+        : await this.completeWithRetry(stack, prompt, trial);
     } catch (error) {
       if (this.errorSamples.length < 5) {
         const message = error instanceof Error ? error.message : String(error);
@@ -251,14 +292,53 @@ export class Harness {
     prompt: string,
     trial: number,
   ): Promise<string> {
+    return this.callWithRetry(stack, () => stack.complete(prompt, trial));
+  }
+
+  private async agentOutput(
+    stack: Runner,
+    prompt: string,
+    trial: number,
+  ): Promise<string> {
+    if (!isAgentRunner(stack)) {
+      this.stats.errors += 1;
+      throw new RunnerError(
+        `${stack.name}: agent loops require a runner with chat support`,
+        { retryable: false },
+      );
+    }
+
+    return runAgent(
+      prompt,
+      {
+        maxTurns: this.maxTurns,
+        toolResults: this.toolResults,
+        agentText: this.agentText,
+      },
+      (messages) => this.chatWithRetry(stack, messages, trial),
+    );
+  }
+
+  private async chatWithRetry(
+    stack: AgentRunner,
+    messages: Parameters<AgentRunner["completeChat"]>[0],
+    trial: number,
+  ): Promise<Awaited<ReturnType<AgentRunner["completeChat"]>>> {
+    return this.callWithRetry(stack, () =>
+      stack.completeChat(messages, trial),
+    );
+  }
+
+  private async callWithRetry<T>(
+    stack: Runner,
+    call: () => Promise<T>,
+  ): Promise<T> {
     const attempts = this.retries + 1;
     let lastError: unknown;
 
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
-        const output = await this.semaphore.run(() =>
-          stack.complete(prompt, trial),
-        );
+        const output = await this.semaphore.run(call);
         this.stats.calls += 1;
         return output;
       } catch (error) {

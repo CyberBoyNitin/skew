@@ -1,6 +1,9 @@
 import { formatToolOutput, parseToolArguments } from "./tools.ts";
-import type { NormalizedToolCall } from "./tools.ts";
 import type {
+  AgentRunner,
+  AgentToolCall,
+  ChatMessage,
+  ChatResponse,
   HttpRunnerOptions,
   Runner,
   ToolChoice,
@@ -22,7 +25,7 @@ export class RunnerError extends Error {
   }
 }
 
-export class HttpRunner implements Runner {
+export class HttpRunner implements AgentRunner {
   readonly name: string;
   private readonly baseUrl: string;
   private readonly model: string;
@@ -46,6 +49,17 @@ export class HttpRunner implements Runner {
   }
 
   async complete(prompt: string, trial = 0): Promise<string> {
+    const response = await this.completeChat(
+      [{ role: "user", content: prompt }],
+      trial,
+    );
+    return formatResponse(response, this.name);
+  }
+
+  async completeChat(
+    messages: readonly ChatMessage[],
+    trial = 0,
+  ): Promise<ChatResponse> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
@@ -57,7 +71,7 @@ export class HttpRunner implements Runner {
     try {
       const body: Record<string, unknown> = {
         model: this.model,
-        messages: [{ role: "user", content: prompt }],
+        messages: toOpenAiMessages(messages),
         temperature: this.temperature,
         max_tokens: this.maxTokens,
         seed: trial,
@@ -114,11 +128,17 @@ export class HttpRunner implements Runner {
       );
     }
 
-    const content = extractOpenAiOutput(body);
-    if (content === null) {
-      const finishReason = extractFinishReason(body);
+    const extracted = extractOpenAiResponse(body);
+    if (extracted === null) {
+      throw new RunnerError(
+        `${this.name}: response did not contain a completion: ${text.slice(0, 300)}`,
+        { retryable: false },
+      );
+    }
+
+    if (extracted.text === null && extracted.toolCalls.length === 0) {
       const hint =
-        finishReason === "length"
+        extracted.finishReason === "length"
           ? ` (finish_reason=length; raise maxTokens above ${this.maxTokens})`
           : "";
       throw new RunnerError(
@@ -126,7 +146,8 @@ export class HttpRunner implements Runner {
         { retryable: false },
       );
     }
-    return content;
+
+    return { text: extracted.text, toolCalls: extracted.toolCalls };
   }
 }
 
@@ -135,7 +156,7 @@ export class HttpRunner implements Runner {
  * OpenAI chat completions, but the output is normalized to the same text or
  * tool-call envelope so both protocols can be compared directly.
  */
-export class AnthropicRunner implements Runner {
+export class AnthropicRunner implements AgentRunner {
   readonly name: string;
   private readonly baseUrl: string;
   private readonly model: string;
@@ -158,7 +179,18 @@ export class AnthropicRunner implements Runner {
     this.toolChoice = options.toolChoice;
   }
 
-  async complete(prompt: string, _trial = 0): Promise<string> {
+  async complete(prompt: string, trial = 0): Promise<string> {
+    const response = await this.completeChat(
+      [{ role: "user", content: prompt }],
+      trial,
+    );
+    return formatResponse(response, this.name);
+  }
+
+  async completeChat(
+    messages: readonly ChatMessage[],
+    trial = 0,
+  ): Promise<ChatResponse> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "anthropic-version": "2023-06-01",
@@ -173,7 +205,7 @@ export class AnthropicRunner implements Runner {
         model: this.model,
         max_tokens: this.maxTokens,
         temperature: this.temperature,
-        messages: [{ role: "user", content: prompt }],
+        messages: toAnthropicMessages(messages),
       };
       if (this.tools.length > 0 && this.toolChoice !== "none") {
         body.tools = this.tools.map((tool) => ({
@@ -226,11 +258,17 @@ export class AnthropicRunner implements Runner {
       );
     }
 
-    const content = extractAnthropicOutput(body);
-    if (content === null) {
-      const stopReason = extractAnthropicStopReason(body);
+    const extracted = extractAnthropicResponse(body);
+    if (extracted === null) {
+      throw new RunnerError(
+        `${this.name}: response did not contain a completion: ${text.slice(0, 300)}`,
+        { retryable: false },
+      );
+    }
+
+    if (extracted.text === null && extracted.toolCalls.length === 0) {
       const hint =
-        stopReason === "max_tokens"
+        extracted.finishReason === "max_tokens"
           ? ` (stop_reason=max_tokens; raise maxTokens above ${this.maxTokens})`
           : "";
       throw new RunnerError(
@@ -238,8 +276,114 @@ export class AnthropicRunner implements Runner {
         { retryable: false },
       );
     }
-    return content;
+
+    return { text: extracted.text, toolCalls: extracted.toolCalls };
   }
+}
+
+function formatResponse(response: ChatResponse, name: string): string {
+  const output = formatToolOutput(response.text, response.toolCalls);
+  if (output === null) {
+    throw new RunnerError(`${name}: no completion content`, {
+      retryable: false,
+    });
+  }
+  return output;
+}
+
+function toOpenAiMessages(
+  messages: readonly ChatMessage[],
+): Record<string, unknown>[] {
+  return messages.map((message) => {
+    switch (message.role) {
+      case "user":
+        return { role: "user", content: message.content };
+      case "tool":
+        return {
+          role: "tool",
+          tool_call_id: message.toolCallId,
+          content: message.content,
+        };
+      case "assistant": {
+        const result: Record<string, unknown> = {
+          role: "assistant",
+          content: message.content,
+        };
+        if (message.toolCalls.length > 0) {
+          result.tool_calls = message.toolCalls.map((call) => ({
+            id: call.id,
+            type: "function",
+            function: {
+              name: call.name,
+              arguments:
+                call.rawArguments ?? JSON.stringify(call.arguments) ?? "{}",
+            },
+          }));
+        }
+        return result;
+      }
+    }
+  });
+}
+
+function toAnthropicMessages(
+  messages: readonly ChatMessage[],
+): Record<string, unknown>[] {
+  const result: Record<string, unknown>[] = [];
+  let pendingToolResults: Record<string, unknown>[] = [];
+
+  const flushToolResults = (): void => {
+    if (pendingToolResults.length > 0) {
+      result.push({ role: "user", content: pendingToolResults });
+      pendingToolResults = [];
+    }
+  };
+
+  for (const message of messages) {
+    if (message.role === "tool") {
+      pendingToolResults.push({
+        type: "tool_result",
+        tool_use_id: message.toolCallId,
+        content: message.content,
+      });
+      continue;
+    }
+
+    flushToolResults();
+
+    if (message.role === "user") {
+      result.push({ role: "user", content: message.content });
+      continue;
+    }
+
+    const content: Record<string, unknown>[] = [];
+    if (message.content !== null && message.content.trim() !== "") {
+      content.push({ type: "text", text: message.content });
+    }
+    for (const call of message.toolCalls) {
+      content.push({
+        type: "tool_use",
+        id: call.id,
+        name: call.name,
+        input: anthropicInput(call),
+      });
+    }
+    result.push({ role: "assistant", content });
+  }
+
+  flushToolResults();
+  return result;
+}
+
+function anthropicInput(call: AgentToolCall): Record<string, unknown> {
+  if (
+    typeof call.arguments === "object" &&
+    call.arguments !== null &&
+    !Array.isArray(call.arguments)
+  ) {
+    return call.arguments as Record<string, unknown>;
+  }
+  return {};
 }
 
 function isRetryableStatus(status: number): boolean {
@@ -320,7 +464,13 @@ function extractFinishReason(body: unknown): string | null {
   return typeof reason === "string" ? reason : null;
 }
 
-function extractOpenAiOutput(body: unknown): string | null {
+interface ExtractedResponse {
+  text: string | null;
+  toolCalls: AgentToolCall[];
+  finishReason: string | null;
+}
+
+function extractOpenAiResponse(body: unknown): ExtractedResponse | null {
   if (typeof body !== "object" || body === null) return null;
   const choices = (body as { choices?: unknown }).choices;
   if (!Array.isArray(choices) || choices.length === 0) return null;
@@ -331,41 +481,51 @@ function extractOpenAiOutput(body: unknown): string | null {
 
   const content = (message as { content?: unknown }).content;
   const text = typeof content === "string" ? content : null;
-  return formatToolOutput(text, extractOpenAiToolCalls(message));
+  return {
+    text,
+    toolCalls: extractOpenAiToolCalls(message),
+    finishReason: extractFinishReason(body),
+  };
 }
 
-function extractOpenAiToolCalls(message: object): NormalizedToolCall[] {
+function extractOpenAiToolCalls(message: object): AgentToolCall[] {
   const raw = (message as { tool_calls?: unknown }).tool_calls;
   if (!Array.isArray(raw)) return [];
 
-  const calls: NormalizedToolCall[] = [];
-  for (const item of raw) {
-    if (typeof item !== "object" || item === null) continue;
+  const calls: AgentToolCall[] = [];
+  raw.forEach((item, index) => {
+    if (typeof item !== "object" || item === null) return;
     const fn = (item as { function?: unknown }).function;
-    if (typeof fn !== "object" || fn === null) continue;
+    if (typeof fn !== "object" || fn === null) return;
 
     const name = (fn as { name?: unknown }).name;
-    if (typeof name !== "string" || name === "") continue;
+    if (typeof name !== "string" || name === "") return;
 
+    const rawId = (item as { id?: unknown }).id;
+    const id =
+      typeof rawId === "string" && rawId !== "" ? rawId : `call_${index}`;
     const args = (fn as { arguments?: unknown }).arguments;
+    const rawArguments = typeof args === "string" ? args : undefined;
     calls.push({
+      id,
       name,
       arguments:
         typeof args === "string"
           ? parseToolArguments(args)
           : (args ?? {}),
+      ...(rawArguments !== undefined ? { rawArguments } : {}),
     });
-  }
+  });
   return calls;
 }
 
-function extractAnthropicOutput(body: unknown): string | null {
+function extractAnthropicResponse(body: unknown): ExtractedResponse | null {
   if (typeof body !== "object" || body === null) return null;
   const content = (body as { content?: unknown }).content;
   if (!Array.isArray(content)) return null;
 
   const texts: string[] = [];
-  const calls: NormalizedToolCall[] = [];
+  const calls: AgentToolCall[] = [];
   for (const block of content) {
     if (typeof block !== "object" || block === null) continue;
     const record = block as Record<string, unknown>;
@@ -375,13 +535,25 @@ function extractAnthropicOutput(body: unknown): string | null {
     } else if (record.type === "tool_use") {
       const name = record.name;
       if (typeof name === "string" && name !== "") {
-        calls.push({ name, arguments: record.input ?? {} });
+        const rawId = record.id;
+        const id =
+          typeof rawId === "string" && rawId !== ""
+            ? rawId
+            : `toolu_${calls.length}`;
+        calls.push({
+          id,
+          name,
+          arguments: record.input ?? {},
+        });
       }
     }
   }
 
-  const text = texts.join("\n");
-  return formatToolOutput(text === "" ? null : text, calls);
+  return {
+    text: texts.length > 0 ? texts.join("\n") : null,
+    toolCalls: calls,
+    finishReason: extractAnthropicStopReason(body),
+  };
 }
 
 function extractAnthropicStopReason(body: unknown): string | null {

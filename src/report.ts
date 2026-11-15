@@ -78,6 +78,18 @@ body{
 .f-block{margin-top:13px}
 .f-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--dim);margin-bottom:6px;display:flex;justify-content:space-between;gap:12px}
 pre{margin:0;background:var(--panel-2);border:1px solid var(--line-soft);border-radius:7px;padding:12px 14px;font-family:var(--mono);font-size:11.5px;line-height:1.65;color:#cfd5df;overflow:auto;max-height:250px;white-space:pre-wrap;word-break:break-word}
+.trace{margin:0;background:var(--panel-2);border:1px solid var(--line-soft);border-radius:7px;padding:6px 12px;max-height:360px;overflow:auto}
+.tr-turn{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line-soft)}
+.tr-turn:last-of-type{border-bottom:0}
+.tr-num{font-family:var(--mono);font-size:9px;color:var(--dim);min-width:18px;padding-top:2px}
+.tr-body{flex:1;min-width:0}
+.tr-call{font-family:var(--mono);font-size:11px;line-height:1.65;color:var(--blue);word-break:break-word}
+.tr-name{color:var(--green)}
+.tr-args{color:var(--muted)}
+.tr-text{font-family:var(--mono);font-size:11px;line-height:1.65;color:#cfd5df;white-space:pre-wrap;word-break:break-word}
+.tr-finish{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);padding:7px 0 4px 28px}
+.tr-empty{color:var(--dim);font-family:var(--mono);font-size:10px}
+.trace + details pre{max-height:220px}
 details{margin-top:10px}
 summary{cursor:pointer;font-family:var(--mono);font-size:10.5px;color:var(--dim);letter-spacing:.04em;list-style:none}
 summary::-webkit-details-marker{display:none}
@@ -146,8 +158,10 @@ export function printSummary(run: Run, outDir: string): void {
   console.log(
     `stacks   ${run.meta.stacks.join(", ")}`,
   );
+  const turns =
+    run.meta.maxTurns > 1 ? `   turns   ${run.meta.maxTurns}` : "";
   console.log(
-    `probes   ${run.meta.probeCount}   trials   ${run.meta.trials}   calls   ${run.stats.calls}   errors   ${run.stats.errors}${retries}   checks   ${run.stats.minimizeChecks}`,
+    `probes   ${run.meta.probeCount}   trials   ${run.meta.trials}${turns}   calls   ${run.stats.calls}   errors   ${run.stats.errors}${retries}   checks   ${run.stats.minimizeChecks}`,
   );
   console.log(
     `found    ${counts.total} divergences (${counts.safety} safety, ${counts.semantic} semantic, ${counts["format-only"]} format-only) · ${run.unstable.length} unstable pairs`,
@@ -200,6 +214,10 @@ export function renderHtml(run: Run): string {
       : run.meta.origin === "replay"
         ? '<span class="badge demo">replay · recorded fixtures</span>'
         : '<span class="badge">live run</span>';
+  const turnBadge =
+    run.meta.maxTurns > 1
+      ? `\n        <span class="badge demo">${run.meta.maxTurns}-turn agent loop</span>`
+      : "";
   const retryMeta =
     run.stats.retries > 0 ? ` · <b>retries</b> ${run.stats.retries}` : "";
 
@@ -258,7 +276,7 @@ export function renderHtml(run: Run): string {
         ${originBadge}
         <span class="badge">seed ${run.meta.seed}</span>
         <span class="badge">${run.meta.probeCount} probes</span>
-        <span class="badge">${run.meta.trials} trials</span>
+        <span class="badge">${run.meta.trials} trials</span>${turnBadge}
         <span class="badge">${run.meta.durationS.toFixed(2)}s</span>
       </div>
     </div>
@@ -290,8 +308,8 @@ export function renderHtml(run: Run): string {
     <h2>Method</h2>
     <div class="method">
       <div class="step"><div class="num">01</div><div class="name">generate</div><p>A seeded grammar emits extraction probes around JSON edge cases, and custom probe files can add tool-use and safety cases.</p></div>
-      <div class="step"><div class="num">02</div><div class="name">sample</div><p>Every stack answers every probe N times at temperature 0. Calls are retried with backoff and bounded by a concurrency limit. The modal output and its stability are computed per stack.</p></div>
-      <div class="step"><div class="num">03</div><div class="name">classify</div><p>Stacks that disagree with themselves are marked unstable. The rest are compared structurally, with format-only, semantic, and safety verdicts.</p></div>
+      <div class="step"><div class="num">02</div><div class="name">sample</div><p>Every stack answers every probe N times at temperature 0. Calls are retried with backoff and bounded by a concurrency limit. With a multi-turn config, tool calls are answered from static results and the model continues until it stops or hits the turn budget.</p></div>
+      <div class="step"><div class="num">03</div><div class="name">classify</div><p>Stacks that disagree with themselves are marked unstable. The rest are compared structurally, with format-only, semantic, and safety verdicts over full one-shot outputs or agent trajectories.</p></div>
       <div class="step"><div class="num">04</div><div class="name">minimize</div><p>Each divergence is delta-debugged over prompt segments and re-verified at the full trial count. Only reductions that reproduce the same disagreement are kept.</p></div>
     </div>
   </section>
@@ -305,6 +323,7 @@ export function renderHtml(run: Run): string {
         <li>Prompts are minimized by removing whole segments (lines and blocks). The minimizer does not rewrite or paraphrase text.</li>
         <li>JSON is compared structurally, with unsafe integers preserved losslessly from the source text. Prose is compared after whitespace normalization.</li>
         <li>Native tool calls are normalized to <code>{name, arguments}</code>. Provider ids, envelopes, and serialization differences are ignored; tool choice and argument values are compared.</li>
+        <li>In agent mode, tool calls are answered from static <code>toolResults</code> values. skew never executes a tool or performs a real side effect. The trace compares call order, arguments, the final answer, and where the loop stopped. Intermediate narration before a tool call is omitted by default because it is high-variance; set <code>agentText</code> to <code>all</code> to compare it too.</li>
         <li>Stacks speak either OpenAI chat-completions or the Anthropic Messages API. Provider-specific sampling controls are not compared.</li>
       </ul>
     </div>
@@ -335,6 +354,8 @@ function findingCard(finding: Finding): string {
     finding.clusterSize > 1
       ? `<span>cluster ×${finding.clusterSize}</span>`
       : "";
+  const traceA = renderAgentTrace(finding.outputA);
+  const traceB = renderAgentTrace(finding.outputB);
 
   const original =
     finding.minimized && finding.originalPrompt !== finding.minimizedPrompt
@@ -362,15 +383,69 @@ function findingCard(finding: Finding): string {
   </div>
   <div class="outputs">
     <div>
-      <div class="f-label"><span>${esc(finding.stackA)}</span><span>observed output</span></div>
-      <pre>${esc(finding.outputA)}</pre>
+      <div class="f-label"><span>${esc(finding.stackA)}</span><span>${traceA ? "agent trace" : "observed output"}</span></div>
+      ${traceA ?? `<pre>${esc(finding.outputA)}</pre>`}
     </div>
     <div>
-      <div class="f-label"><span>${esc(finding.stackB)}</span><span>observed output</span></div>
-      <pre>${esc(finding.outputB)}</pre>
+      <div class="f-label"><span>${esc(finding.stackB)}</span><span>${traceB ? "agent trace" : "observed output"}</span></div>
+      ${traceB ?? `<pre>${esc(finding.outputB)}</pre>`}
     </div>
   </div>
 </article>`;
+}
+
+function renderAgentTrace(output: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsed)) return null;
+  const turns = parsed.turns;
+  const finish = parsed.finish;
+  if (
+    !Array.isArray(turns) ||
+    (finish !== "final" && finish !== "max_turns")
+  ) {
+    return null;
+  }
+
+  const rows = turns
+    .map((turn, index) => {
+      if (!isRecord(turn)) return "";
+      const assistant = isRecord(turn.assistant) ? turn.assistant : {};
+      const calls = Array.isArray(assistant.tool_calls)
+        ? assistant.tool_calls
+        : [];
+      const text =
+        typeof assistant.text === "string" ? assistant.text : "";
+      const callHtml = calls
+        .map((call) => {
+          if (!isRecord(call)) return "";
+          const name = typeof call.name === "string" ? call.name : "?";
+          const args =
+            JSON.stringify(call.arguments ?? {}) ?? "{}";
+          return `<div class="tr-call"><span class="tr-name">${esc(name)}</span><span class="tr-args">(${esc(args)})</span></div>`;
+        })
+        .join("");
+      const textHtml =
+        text === "" ? "" : `<div class="tr-text">${esc(text)}</div>`;
+      const body =
+        callHtml + textHtml === ""
+          ? '<div class="tr-empty">(empty turn)</div>'
+          : callHtml + textHtml;
+      return `<div class="tr-turn"><div class="tr-num">${String(index + 1).padStart(2, "0")}</div><div class="tr-body">${body}</div></div>`;
+    })
+    .join("");
+
+  const finishLabel =
+    finish === "final" ? "final answer" : "turn budget reached";
+  return `<div class="trace">${rows}<div class="tr-finish">finish · ${finishLabel}</div></div><details><summary>raw trace · ${output.length} chars</summary><pre>${esc(output)}</pre></details>`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function unstableRow(group: UnstableGroup): string {

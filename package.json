@@ -1,7 +1,7 @@
 {
   "name": "skew-cli",
-  "version": "0.4.0",
-  "description": "Differential fuzzing for LLM stacks: find, classify, and minimize behavioral divergences.",
+  "version": "0.5.0",
+  "description": "Differential fuzzing for LLM stacks, including multi-turn tool workflows: find, classify, and minimize behavioral divergences.",
   "type": "module",
   "bin": {
     "skew": "./dist/cli.js"
@@ -29,9 +29,11 @@
     "real:omniroute": "node src/cli.ts run --config examples/omniroute.config.json",
     "real:tools": "node src/cli.ts run --config examples/tools.config.json",
     "real:anthropic": "node src/cli.ts run --config examples/omniroute-anthropic.config.json",
+    "real:agent": "node src/cli.ts run --config examples/agent.config.json",
     "replay:real": "node src/cli.ts run --config examples/omniroute.config.json --replay docs/real/fixtures",
     "replay:tools": "node src/cli.ts run --config examples/tools.config.json --replay docs/tools/fixtures",
     "replay:anthropic": "node src/cli.ts run --config examples/omniroute-anthropic.config.json --replay docs/anthropic/fixtures",
+    "replay:agent": "node src/cli.ts run --config examples/agent.config.json --replay docs/agents/fixtures",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test \"tests/*.test.ts\"",
@@ -42,6 +44,8 @@
     "differential-testing",
     "fuzzing",
     "evaluation",
+    "agent",
+    "tool-calling",
     "ai-infrastructure",
     "typescript"
   ],

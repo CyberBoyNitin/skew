@@ -1,3 +1,5 @@
+export { runAgent } from "./agent.ts";
+export type { AgentOptions, AgentTrace, AgentTraceTurn } from "./agent.ts";
 export {
   STABLE_THRESHOLD,
   SEVERITY,
@@ -26,7 +28,7 @@ export {
   safeStackName,
   saveRecordings,
 } from "./replay.ts";
-export type { ReplayManifest } from "./replay.ts";
+export type { ReplayEntry, ReplayManifest } from "./replay.ts";
 export { Semaphore } from "./semaphore.ts";
 export {
   AlphaStack,
@@ -53,7 +55,14 @@ export {
   printSummary,
   writeArtifacts,
 } from "./report.ts";
+export { isAgentRunner } from "./types.ts";
 export type {
+  AgentRunner,
+  AgentText,
+  AgentToolCall,
+  AssistantMessage,
+  ChatMessage,
+  ChatResponse,
   DivergenceVerdict,
   Finding,
   HttpRunnerOptions,
@@ -65,7 +74,9 @@ export type {
   RunStats,
   ToolChoice,
   ToolDefinition,
+  ToolMessage,
   UnstableGroup,
+  UserMessage,
   Verdict,
 } from "./types.ts";
 export { VERSION } from "./version.ts";

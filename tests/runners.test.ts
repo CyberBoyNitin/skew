@@ -11,6 +11,7 @@ import {
   parseRetryAfter,
   RunnerError,
 } from "../src/runners.ts";
+import type { ChatMessage } from "../src/types.ts";
 
 test("demo stacks disagree on an unsafe integer", async () => {
   const probe = generateProbes({ count: 2, seed: 7 })[1]!;
@@ -276,6 +277,21 @@ test("AnthropicRunner posts Messages requests and normalizes tool use", async ()
       '{"text":"Sure, looking it up.","tool_calls":[{"name":"lookup_customer","arguments":{"email":"ada@example.com"}}]}',
     );
 
+    const chat = await runner.completeChat(
+      [{ role: "user", content: "hi" }],
+      2,
+    );
+    assert.deepEqual(chat, {
+      text: "Sure, looking it up.",
+      toolCalls: [
+        {
+          id: "toolu_1",
+          name: "lookup_customer",
+          arguments: { email: "ada@example.com" },
+        },
+      ],
+    });
+
     const headers = new Headers(init?.headers);
     assert.equal(headers.get("x-api-key"), "secret");
     assert.equal(headers.get("anthropic-version"), "2023-06-01");
@@ -389,6 +405,244 @@ test("toolChoice none omits tool definitions", async () => {
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
     assert.equal(body.tools, undefined);
     assert.equal(body.tool_choice, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("HttpRunner sends assistant tool calls and tool results in history", async () => {
+  const originalFetch = globalThis.fetch;
+  let init: RequestInit | undefined;
+  globalThis.fetch = (async (
+    _input: string | URL | Request,
+    options?: RequestInit,
+  ) => {
+    init = options;
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { role: "assistant", content: "Active." } }],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  const messages: ChatMessage[] = [
+    { role: "user", content: "Look up ada@example.com." },
+    {
+      role: "assistant",
+      content: null,
+      toolCalls: [
+        {
+          id: "call_1",
+          name: "lookup_customer",
+          arguments: { email: "ada@example.com" },
+          rawArguments: '{"email":"ada@example.com"}',
+        },
+      ],
+    },
+    {
+      role: "tool",
+      toolCallId: "call_1",
+      name: "lookup_customer",
+      content: '{"id":"cus_1042"}',
+    },
+  ];
+
+  try {
+    const runner = new HttpRunner({
+      name: "mock",
+      baseUrl: "http://example.test/v1",
+      model: "mock-1",
+      tools: [LOOKUP_TOOL],
+    });
+
+    const response = await runner.completeChat(messages, 3);
+    assert.deepEqual(response, { text: "Active.", toolCalls: [] });
+
+    const body = JSON.parse(String(init?.body)) as {
+      seed: number;
+      messages: unknown;
+    };
+    assert.equal(body.seed, 3);
+    assert.deepEqual(body.messages, [
+      { role: "user", content: "Look up ada@example.com." },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: {
+              name: "lookup_customer",
+              arguments: '{"email":"ada@example.com"}',
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_1",
+        content: '{"id":"cus_1042"}',
+      },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("HttpRunner preserves provider tool ids and invalid raw arguments", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        choices: [
+          {
+            finish_reason: "tool_calls",
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_broken",
+                  type: "function",
+                  function: {
+                    name: "lookup_customer",
+                    arguments: '{"email":',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )) as typeof fetch;
+
+  try {
+    const runner = new HttpRunner({
+      name: "mock",
+      baseUrl: "http://example.test/v1",
+      model: "mock-1",
+      tools: [LOOKUP_TOOL],
+    });
+
+    const response = await runner.completeChat([
+      { role: "user", content: "hi" },
+    ]);
+    assert.equal(response.text, null);
+    assert.deepEqual(response.toolCalls, [
+      {
+        id: "call_broken",
+        name: "lookup_customer",
+        arguments: '{"email":',
+        rawArguments: '{"email":',
+      },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("AnthropicRunner groups tool results into one user turn", async () => {
+  const originalFetch = globalThis.fetch;
+  let init: RequestInit | undefined;
+  globalThis.fetch = (async (
+    _input: string | URL | Request,
+    options?: RequestInit,
+  ) => {
+    init = options;
+    return new Response(
+      JSON.stringify({
+        content: [{ type: "text", text: "Both lookups finished." }],
+        stop_reason: "end_turn",
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  const messages: ChatMessage[] = [
+    { role: "user", content: "Look up both customers." },
+    {
+      role: "assistant",
+      content: "Checking both.",
+      toolCalls: [
+        {
+          id: "toolu_1",
+          name: "lookup_customer",
+          arguments: { email: "ada@example.com" },
+        },
+        {
+          id: "toolu_2",
+          name: "lookup_customer",
+          arguments: { email: "grace@example.com" },
+        },
+      ],
+    },
+    {
+      role: "tool",
+      toolCallId: "toolu_1",
+      name: "lookup_customer",
+      content: '{"id":"cus_1"}',
+    },
+    {
+      role: "tool",
+      toolCallId: "toolu_2",
+      name: "lookup_customer",
+      content: '{"id":"cus_2"}',
+    },
+  ];
+
+  try {
+    const runner = new AnthropicRunner({
+      name: "claude",
+      baseUrl: "http://example.test/v1",
+      model: "claude-test",
+      tools: [LOOKUP_TOOL],
+    });
+
+    const response = await runner.completeChat(messages);
+    assert.deepEqual(response, {
+      text: "Both lookups finished.",
+      toolCalls: [],
+    });
+
+    const body = JSON.parse(String(init?.body)) as { messages: unknown };
+    assert.deepEqual(body.messages, [
+      { role: "user", content: "Look up both customers." },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Checking both." },
+          {
+            type: "tool_use",
+            id: "toolu_1",
+            name: "lookup_customer",
+            input: { email: "ada@example.com" },
+          },
+          {
+            type: "tool_use",
+            id: "toolu_2",
+            name: "lookup_customer",
+            input: { email: "grace@example.com" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_1",
+            content: '{"id":"cus_1"}',
+          },
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_2",
+            content: '{"id":"cus_2"}',
+          },
+        ],
+      },
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }

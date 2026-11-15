@@ -13,7 +13,12 @@ import {
 } from "./replay.ts";
 import { printSummary, writeArtifacts } from "./report.ts";
 import { demoStacks } from "./runners.ts";
-import type { DivergenceVerdict, Run, Runner } from "./types.ts";
+import type {
+  AgentText,
+  DivergenceVerdict,
+  Run,
+  Runner,
+} from "./types.ts";
 import { VERSION } from "./version.ts";
 
 const USAGE = `skew v${VERSION} · differential fuzzing for LLM stacks
@@ -67,6 +72,9 @@ interface ExecuteOptions {
   retries: number;
   retryDelayMs: number;
   retryMaxDelayMs: number;
+  maxTurns: number;
+  toolResults: Record<string, unknown>;
+  agentText: AgentText;
   origin: string;
   outDir: string;
   failOn: FailOn;
@@ -143,6 +151,9 @@ async function main(argv: string[]): Promise<void> {
       retries: integerOption(values.retries, 2, "--retries", 0),
       retryDelayMs: 500,
       retryMaxDelayMs: 8000,
+      maxTurns: 1,
+      toolResults: {},
+      agentText: "final",
       origin: "demo",
       outDir,
       failOn: parseFailOn(values["fail-on"]),
@@ -207,6 +218,9 @@ async function main(argv: string[]): Promise<void> {
       retries: integerOption(values.retries, config.retries, "--retries", 0),
       retryDelayMs: config.retryDelayMs,
       retryMaxDelayMs: config.retryMaxDelayMs,
+      maxTurns: config.maxTurns,
+      toolResults: config.toolResults,
+      agentText: config.agentText,
       origin: values.replay ? "replay" : "live",
       outDir,
       failOn: parseFailOn(values["fail-on"]),
@@ -238,6 +252,9 @@ async function execute(options: ExecuteOptions): Promise<number> {
     retries: options.retries,
     retryDelayMs: options.retryDelayMs,
     retryMaxDelayMs: options.retryMaxDelayMs,
+    maxTurns: options.maxTurns,
+    toolResults: options.toolResults,
+    agentText: options.agentText,
   });
 
   const run = await harness.run();
