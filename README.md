@@ -1,8 +1,9 @@
 # skew
 
 **Differential fuzzing for LLM stacks.** Find where two models, providers, or
-quantizations behave differently on the same prompt or multi-turn tool workflow —
-then minimize each disagreement to its smallest reproducible form.
+quantizations behave differently on the same prompt or multi-turn tool workflow,
+including retries and failure recovery, then minimize each disagreement to its
+smallest reproducible form.
 
 ![skew report](docs/demo/report.png)
 
@@ -83,6 +84,31 @@ npm run replay:agent
 
 See [`docs/agents/README.md`](docs/agents/README.md) for the loop semantics,
 what was excluded, and the full caveats.
+
+### Failure recovery trajectories
+
+[`docs/agent-failures/`](docs/agent-failures/) adds sequenced tool results and
+injected errors. Six probes exercise retryable and permanent failures, polling,
+and a mixed recovery chain. Assistant text is ignored with
+`agentText: "none"`, so the comparison is over the trajectory itself:
+
+```text
+found    4 divergences (0 safety, 2 semantic, 2 format-only) · 0 unstable pairs
+calls    214   errors 0   minimization checks 12
+```
+
+One semantic finding is a budget effect: a stack that retries each failed call
+serially exhausts the four-call budget, while the other batches both first
+attempts and both retries into two turns and finishes. The other is an extra
+customer lookup that the task did not ask for. The two format-only findings are
+stable argument key-order differences on refund calls.
+
+```bash
+npm run replay:agent-failures
+```
+
+See [`docs/agent-failures/README.md`](docs/agent-failures/README.md) for the
+sequences, exclusions, and caveats.
 
 ### Native tool calls
 
@@ -296,7 +322,8 @@ for a complete run.
 ### Agent loops
 
 Set `maxTurns` above 1 to compare multi-turn tool trajectories. Every configured
-tool needs a static result, so the loop is deterministic and replayable:
+tool needs a static result or an ordered sequence, so the loop is deterministic
+and replayable:
 
 ```json
 {
@@ -324,11 +351,53 @@ String tool results are sent verbatim; other JSON values are serialized. A call
 to an unknown tool receives a JSON error result and stays visible in the trace.
 `skew` never executes a tool, so there are no real side effects.
 
-`agentText` controls whether assistant prose before a tool call is compared:
-`final` (default) compares only the final answer, while `all` compares every
-assistant message. The full trace still records every call, result, and the
-`finish` state (`final` or `max_turns`). See
-[`examples/agent.config.json`](examples/agent.config.json) for a complete run.
+For retry and recovery tests, replace a static result with `toolSequences`.
+Each step is exactly one of `result` or `error`; steps advance by call count,
+and the last step repeats after the sequence is exhausted:
+
+```json
+{
+  "maxTurns": 4,
+  "tools": [
+    {
+      "name": "get_order",
+      "description": "Fetch an order by id. May return a retryable timeout.",
+      "parameters": {
+        "type": "object",
+        "properties": { "order_id": { "type": "string" } },
+        "required": ["order_id"]
+      }
+    }
+  ],
+  "toolSequences": {
+    "get_order": [
+      {
+        "error": {
+          "code": "upstream_timeout",
+          "message": "order service timed out",
+          "retryable": true
+        }
+      },
+      { "result": { "order_id": "8812", "status": "delivered" } }
+    ]
+  }
+}
+```
+
+The first `get_order` call returns the timeout, the second returns the order,
+and any later call returns the order again. `toolResults` and `toolSequences`
+cannot be combined for the same tool. Explicit error steps are marked as tool
+errors for Anthropic; OpenAI receives the serialized error content. See
+[`examples/agent-failures.config.json`](examples/agent-failures.config.json).
+
+`agentText` controls whether assistant prose is compared: `final` (default)
+compares only the final answer, `all` compares every assistant message, and
+`none` ignores all assistant text so only tool calls, results, and the
+`finish` state are compared. The full trace still records every call, result,
+and where the loop stopped. See
+[`examples/agent.config.json`](examples/agent.config.json) for a complete run
+and [`examples/agent-failures.config.json`](examples/agent-failures.config.json)
+for a trajectory-only failure run.
 
 Probe files are resolved relative to the config file. Retries apply to transport
 errors plus HTTP 408, 409, 425, 429, and 5xx; other 4xx responses fail fast.
@@ -373,6 +442,9 @@ as JSONL:
 - For agent loops, write prompts that require the tool chain you want to test
   (for example lookup → order → refund) and give each step its own segment so
   minimization can remove filler without losing the task.
+- For failure tests, state whether an error is retryable and how many retries
+  are allowed. A single `error` step repeats, so use the sequence length to
+  decide when recovery succeeds.
 
 ## Record and replay
 
@@ -390,7 +462,9 @@ and trial. `--replay` feeds those responses back through the same harness, so
 probes, classification, minimization, loop execution, and final verification all
 run deterministically. Recording keeps successful responses only; a replay miss
 is a hard, non-retryable error. Replay an agent run with the same tools,
-`toolResults`, `maxTurns`, and `agentText` config.
+`toolResults`, `toolSequences`, `maxTurns`, and `agentText` config. Injected
+errors are part of the recorded history, so Anthropic `is_error` replies replay
+exactly.
 
 ## CLI
 
@@ -437,9 +511,11 @@ skew run --config <file> [options]  compare live OpenAI or Anthropic stacks
   lossless. Provider tool ids are retained internally so the next turn can
   reference the call, then omitted from compared traces.
 - **Bounded agent loop.** `maxTurns` caps model calls per trajectory. Tool calls
-  are answered from static `toolResults`, the resulting messages are translated
-  back to each protocol, and the loop stops on a final answer or the budget.
-  `agentText` decides whether pre-tool narration is compared.
+  are answered from static `toolResults` or ordered `toolSequences`, the
+  resulting messages are translated back to each protocol, and the loop stops on
+  a final answer or the budget. Sequence steps can inject errors, so retry and
+  recovery behavior is comparable without a live backend. `agentText` decides
+  whether pre-tool narration is compared.
 - **Output caps.** Every request sends `max_tokens` (default 512) so a chatty
   model cannot stall a run with unbounded generation.
 - **Record/replay.** Each successful completion is keyed by stack, prompt or
@@ -459,16 +535,21 @@ skew run --config <file> [options]  compare live OpenAI or Anthropic stacks
   rewrite text. Custom probes are compared as-is, with no ground-truth answer.
 - Recordings contain successful responses only. A replayed run must use the same
   probe set, seed, trial count, minimization budget, tool definitions,
-  `toolResults`, `maxTurns`, and `agentText`; otherwise a request can miss the
-  fixture and fail loudly.
-- Agent tool results are static config values. `skew` does not execute tools,
-  validate arguments against a live backend, or test recovery from real tool
-  failures. Unknown tool names receive a JSON error result.
+  `toolResults`, `toolSequences`, `maxTurns`, and `agentText`; otherwise a
+  request can miss the fixture and fail loudly.
+- Agent tool results are static or sequenced config values. `skew` does not
+  execute tools, validate arguments against a live backend, or reproduce a real
+  backend's state transitions. The sequence advances by call count and repeats
+  its last step; it does not simulate latency, partial payloads, or concurrency
+  side effects. Unknown tool names receive a JSON error result.
 - `maxTurns` is a hard budget. A trace that ends with `finish: "max_turns"` did
   not produce a final answer inside the budget.
 - `agentText: "final"` deliberately ignores pre-tool narration. This reduces
   noise but can hide a refusal or hedge that appears before a tool call; use
   `agentText: "all"` when that text matters.
+- `agentText: "none"` compares only the tool trajectory and ignores every
+  assistant message. It is useful for failure-recovery runs where wording is
+  high-variance, but it cannot detect a wrong final answer.
 - Anthropic Messages has no seed parameter. OpenAI stacks send the trial index
   as a seed; Anthropic stacks rely on repeated sampling for stability.
 - Hosted free tiers rate-limit aggressively. The retry budget and

@@ -298,7 +298,8 @@ function isChatMessage(value: unknown): value is ChatMessage {
       return (
         typeof record.toolCallId === "string" &&
         typeof record.name === "string" &&
-        typeof record.content === "string"
+        typeof record.content === "string" &&
+        (record.isError === undefined || typeof record.isError === "boolean")
       );
     default:
       return false;

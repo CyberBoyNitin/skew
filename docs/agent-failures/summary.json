@@ -1,0 +1,32 @@
+{
+  "meta": {
+    "startedAt": "2026-11-15T05:58:04.175Z",
+    "durationS": 413.36,
+    "seed": 41,
+    "probeCount": 6,
+    "trials": 3,
+    "maxTurns": 4,
+    "sequencedTools": 4,
+    "injectedErrors": 3,
+    "stacks": [
+      "gpt-oss-120b",
+      "claude-sonnet-anthropic"
+    ],
+    "version": "0.6.0",
+    "origin": "live"
+  },
+  "stats": {
+    "calls": 214,
+    "errors": 0,
+    "retries": 0,
+    "minimizeChecks": 12
+  },
+  "counts": {
+    "total": 4,
+    "safety": 0,
+    "semantic": 2,
+    "format-only": 2
+  },
+  "unstable": [],
+  "errorSamples": []
+}

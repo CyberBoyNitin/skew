@@ -86,6 +86,11 @@ pre{margin:0;background:var(--panel-2);border:1px solid var(--line-soft);border-
 .tr-call{font-family:var(--mono);font-size:11px;line-height:1.65;color:var(--blue);word-break:break-word}
 .tr-name{color:var(--green)}
 .tr-args{color:var(--muted)}
+.tr-result{font-family:var(--mono);font-size:10.5px;line-height:1.55;color:var(--dim);word-break:break-word;padding-left:2px}
+.tr-result.error{color:var(--red)}
+.tr-result.error .tr-res{color:var(--red)}
+.tr-res-label{font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-left:3px}
+.tr-res{color:var(--muted)}
 .tr-text{font-family:var(--mono);font-size:11px;line-height:1.65;color:#cfd5df;white-space:pre-wrap;word-break:break-word}
 .tr-finish{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);padding:7px 0 4px 28px}
 .tr-empty{color:var(--dim);font-family:var(--mono);font-size:10px}
@@ -160,8 +165,14 @@ export function printSummary(run: Run, outDir: string): void {
   );
   const turns =
     run.meta.maxTurns > 1 ? `   turns   ${run.meta.maxTurns}` : "";
+  const sequencedTools = run.meta.sequencedTools ?? 0;
+  const injectedErrors = run.meta.injectedErrors ?? 0;
+  const sequences =
+    sequencedTools > 0
+      ? `   sequences   ${sequencedTools}${injectedErrors > 0 ? ` (${injectedErrors} error steps)` : ""}`
+      : "";
   console.log(
-    `probes   ${run.meta.probeCount}   trials   ${run.meta.trials}${turns}   calls   ${run.stats.calls}   errors   ${run.stats.errors}${retries}   checks   ${run.stats.minimizeChecks}`,
+    `probes   ${run.meta.probeCount}   trials   ${run.meta.trials}${turns}${sequences}   calls   ${run.stats.calls}   errors   ${run.stats.errors}${retries}   checks   ${run.stats.minimizeChecks}`,
   );
   console.log(
     `found    ${counts.total} divergences (${counts.safety} safety, ${counts.semantic} semantic, ${counts["format-only"]} format-only) · ${run.unstable.length} unstable pairs`,
@@ -217,6 +228,12 @@ export function renderHtml(run: Run): string {
   const turnBadge =
     run.meta.maxTurns > 1
       ? `\n        <span class="badge demo">${run.meta.maxTurns}-turn agent loop</span>`
+      : "";
+  const sequencedTools = run.meta.sequencedTools ?? 0;
+  const injectedErrors = run.meta.injectedErrors ?? 0;
+  const sequenceBadge =
+    sequencedTools > 0
+      ? `\n        <span class="badge demo">${sequencedTools} sequenced tool${sequencedTools === 1 ? "" : "s"}${injectedErrors > 0 ? ` · ${injectedErrors} error step${injectedErrors === 1 ? "" : "s"}` : ""}</span>`
       : "";
   const retryMeta =
     run.stats.retries > 0 ? ` · <b>retries</b> ${run.stats.retries}` : "";
@@ -276,7 +293,7 @@ export function renderHtml(run: Run): string {
         ${originBadge}
         <span class="badge">seed ${run.meta.seed}</span>
         <span class="badge">${run.meta.probeCount} probes</span>
-        <span class="badge">${run.meta.trials} trials</span>${turnBadge}
+        <span class="badge">${run.meta.trials} trials</span>${turnBadge}${sequenceBadge}
         <span class="badge">${run.meta.durationS.toFixed(2)}s</span>
       </div>
     </div>
@@ -308,7 +325,7 @@ export function renderHtml(run: Run): string {
     <h2>Method</h2>
     <div class="method">
       <div class="step"><div class="num">01</div><div class="name">generate</div><p>A seeded grammar emits extraction probes around JSON edge cases, and custom probe files can add tool-use and safety cases.</p></div>
-      <div class="step"><div class="num">02</div><div class="name">sample</div><p>Every stack answers every probe N times at temperature 0. Calls are retried with backoff and bounded by a concurrency limit. With a multi-turn config, tool calls are answered from static results and the model continues until it stops or hits the turn budget.</p></div>
+      <div class="step"><div class="num">02</div><div class="name">sample</div><p>Every stack answers every probe N times at temperature 0. Calls are retried with backoff and bounded by a concurrency limit. With a multi-turn config, tool calls are answered from static or sequenced results and the model continues until it stops or hits the turn budget. Sequence steps can return a result or inject an error to exercise retry paths.</p></div>
       <div class="step"><div class="num">03</div><div class="name">classify</div><p>Stacks that disagree with themselves are marked unstable. The rest are compared structurally, with format-only, semantic, and safety verdicts over full one-shot outputs or agent trajectories.</p></div>
       <div class="step"><div class="num">04</div><div class="name">minimize</div><p>Each divergence is delta-debugged over prompt segments and re-verified at the full trial count. Only reductions that reproduce the same disagreement are kept.</p></div>
     </div>
@@ -323,7 +340,7 @@ export function renderHtml(run: Run): string {
         <li>Prompts are minimized by removing whole segments (lines and blocks). The minimizer does not rewrite or paraphrase text.</li>
         <li>JSON is compared structurally, with unsafe integers preserved losslessly from the source text. Prose is compared after whitespace normalization.</li>
         <li>Native tool calls are normalized to <code>{name, arguments}</code>. Provider ids, envelopes, and serialization differences are ignored; tool choice and argument values are compared.</li>
-        <li>In agent mode, tool calls are answered from static <code>toolResults</code> values. skew never executes a tool or performs a real side effect. The trace compares call order, arguments, the final answer, and where the loop stopped. Intermediate narration before a tool call is omitted by default because it is high-variance; set <code>agentText</code> to <code>all</code> to compare it too.</li>
+        <li>In agent mode, tool calls are answered from static <code>toolResults</code> values or ordered <code>toolSequences</code>. skew never executes a tool or performs a real side effect. Each sequence step is a result or an injected error; after the last step, the last step repeats. The trace compares call order, arguments, returned results, injected errors, and where the loop stopped; assistant text is included according to <code>agentText</code>. The default <code>final</code> omits pre-tool narration because it is high-variance. Use <code>all</code> to compare every assistant message, or <code>none</code> to compare only calls, results, and where the loop stopped.</li>
         <li>Stacks speak either OpenAI chat-completions or the Anthropic Messages API. Provider-specific sampling controls are not compared.</li>
       </ul>
     </div>
@@ -429,12 +446,24 @@ function renderAgentTrace(output: string): string | null {
           return `<div class="tr-call"><span class="tr-name">${esc(name)}</span><span class="tr-args">(${esc(args)})</span></div>`;
         })
         .join("");
+      const results = Array.isArray(turn.results) ? turn.results : [];
+      const resultHtml = results
+        .map((result) => {
+          if (!isRecord(result)) return "";
+          const name =
+            typeof result.name === "string" ? result.name : "?";
+          const isError = result.is_error === true;
+          const value =
+            JSON.stringify(result.result ?? null) ?? "null";
+          return `<div class="tr-result${isError ? " error" : ""}"><span class="tr-res-label">${isError ? "error" : "result"}</span> <span class="tr-name">${esc(name)}</span> <span class="tr-res">${esc(value)}</span></div>`;
+        })
+        .join("");
       const textHtml =
         text === "" ? "" : `<div class="tr-text">${esc(text)}</div>`;
       const body =
-        callHtml + textHtml === ""
+        callHtml + resultHtml + textHtml === ""
           ? '<div class="tr-empty">(empty turn)</div>'
-          : callHtml + textHtml;
+          : callHtml + resultHtml + textHtml;
       return `<div class="tr-turn"><div class="tr-num">${String(index + 1).padStart(2, "0")}</div><div class="tr-body">${body}</div></div>`;
     })
     .join("");

@@ -345,6 +345,7 @@ function toAnthropicMessages(
         type: "tool_result",
         tool_use_id: message.toolCallId,
         content: message.content,
+        ...(message.isError ? { is_error: true } : {}),
       });
       continue;
     }

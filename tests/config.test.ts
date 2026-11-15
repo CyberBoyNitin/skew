@@ -130,12 +130,18 @@ test("agent loop config parses maxTurns and static tool results", () => {
   });
 });
 
-test("agentText accepts all and rejects unknown modes", () => {
-  const config = normalizeConfig({
+test("agentText accepts all, final, and none and rejects unknown modes", () => {
+  const all = normalizeConfig({
     stacks: STACKS,
     agentText: "all",
   });
-  assert.equal(config.agentText, "all");
+  assert.equal(all.agentText, "all");
+
+  const none = normalizeConfig({
+    stacks: STACKS,
+    agentText: "none",
+  });
+  assert.equal(none.agentText, "none");
 
   assert.throws(
     () => normalizeConfig({ stacks: STACKS, agentText: "every" }),
@@ -209,6 +215,129 @@ test("agent loop config requires a result for every tool", () => {
         },
       }),
     /toolChoice "none"/,
+  );
+});
+
+test("agent loop config parses sequenced tool results", () => {
+  const tool = {
+    name: "get_order",
+    description: "Fetch an order.",
+  };
+  const config = normalizeConfig({
+    stacks: STACKS,
+    maxTurns: 3,
+    tools: [tool],
+    toolSequences: {
+      get_order: [
+        { error: { code: "timeout", message: "upstream timeout" } },
+        { result: { order_id: "8812", status: "delivered" } },
+      ],
+    },
+  });
+
+  assert.deepEqual(config.toolResults, {});
+  assert.deepEqual(config.toolSequences, {
+    get_order: [
+      { error: { code: "timeout", message: "upstream timeout" } },
+      { result: { order_id: "8812", status: "delivered" } },
+    ],
+  });
+});
+
+test("agent loop config validates sequenced tool results", () => {
+  const tool = {
+    name: "get_order",
+    description: "Fetch an order.",
+  };
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+        toolSequences: { get_order: [] },
+      }),
+    /non-empty array/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+        toolSequences: { get_order: [{ result: {}, error: {} }] },
+      }),
+    /exactly one of "result" or "error"/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+        toolSequences: { get_order: [{}] },
+      }),
+    /exactly one of "result" or "error"/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+        toolSequences: { other_tool: [{ result: {} }] },
+      }),
+    /unknown tool/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 1,
+        tools: [tool],
+        toolSequences: { get_order: [{ result: {} }] },
+      }),
+    /requires maxTurns >= 2/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+        toolResults: { get_order: {} },
+        toolSequences: { get_order: [{ result: {} }] },
+      }),
+    /cannot be combined/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+        toolChoice: "none",
+        toolSequences: { get_order: [{ result: {} }] },
+      }),
+    /toolChoice "none"/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool, { name: "get_customer", description: "Fetch." }],
+        toolSequences: { get_order: [{ result: {} }] },
+      }),
+    /missing a result for tool "get_customer"/,
   );
 });
 

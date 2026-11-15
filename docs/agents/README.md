@@ -114,3 +114,7 @@ npm run replay:agent
   to establish reliability. The unstable bucket is part of the result.
 - This run uses one gateway and two models. It is a demonstration, not a
   benchmark or a claim about either provider.
+
+For retry and failure-recovery trajectories, see the
+[agent failure run](../agent-failures/README.md), which adds sequenced tool
+results and injected errors.

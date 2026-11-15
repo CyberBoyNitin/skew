@@ -583,6 +583,7 @@ test("AnthropicRunner groups tool results into one user turn", async () => {
       toolCallId: "toolu_1",
       name: "lookup_customer",
       content: '{"id":"cus_1"}',
+      isError: true,
     },
     {
       role: "tool",
@@ -634,6 +635,7 @@ test("AnthropicRunner groups tool results into one user turn", async () => {
             type: "tool_result",
             tool_use_id: "toolu_1",
             content: '{"id":"cus_1"}',
+            is_error: true,
           },
           {
             type: "tool_result",
