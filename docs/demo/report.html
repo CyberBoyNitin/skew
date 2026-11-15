@@ -75,6 +75,18 @@ body{
 .f-block{margin-top:13px}
 .f-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--dim);margin-bottom:6px;display:flex;justify-content:space-between;gap:12px}
 pre{margin:0;background:var(--panel-2);border:1px solid var(--line-soft);border-radius:7px;padding:12px 14px;font-family:var(--mono);font-size:11.5px;line-height:1.65;color:#cfd5df;overflow:auto;max-height:250px;white-space:pre-wrap;word-break:break-word}
+.trace{margin:0;background:var(--panel-2);border:1px solid var(--line-soft);border-radius:7px;padding:6px 12px;max-height:360px;overflow:auto}
+.tr-turn{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line-soft)}
+.tr-turn:last-of-type{border-bottom:0}
+.tr-num{font-family:var(--mono);font-size:9px;color:var(--dim);min-width:18px;padding-top:2px}
+.tr-body{flex:1;min-width:0}
+.tr-call{font-family:var(--mono);font-size:11px;line-height:1.65;color:var(--blue);word-break:break-word}
+.tr-name{color:var(--green)}
+.tr-args{color:var(--muted)}
+.tr-text{font-family:var(--mono);font-size:11px;line-height:1.65;color:#cfd5df;white-space:pre-wrap;word-break:break-word}
+.tr-finish{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);padding:7px 0 4px 28px}
+.tr-empty{color:var(--dim);font-family:var(--mono);font-size:10px}
+.trace + details pre{max-height:220px}
 details{margin-top:10px}
 summary{cursor:pointer;font-family:var(--mono);font-size:10.5px;color:var(--dim);letter-spacing:.04em;list-style:none}
 summary::-webkit-details-marker{display:none}
@@ -118,14 +130,14 @@ footer{margin-top:56px;border-top:1px solid var(--line);padding-top:18px;display
         <span class="badge">seed 7</span>
         <span class="badge">8 probes</span>
         <span class="badge">3 trials</span>
-        <span class="badge">0.07s</span>
+        <span class="badge">0.08s</span>
       </div>
     </div>
     <div class="runmeta">
-      <div><b>run</b> 2026-11-13T05:39:07.618Z</div>
+      <div><b>run</b> 2026-11-15T04:31:34.349Z</div>
       <div><b>stacks</b> alpha · beta · gamma · delta</div>
       <div><b>calls</b> 375 · <b>errors</b> 0 · <b>checks</b> 151</div>
-      <div><b>skew</b> v0.4.0</div>
+      <div><b>skew</b> v0.5.0</div>
     </div>
   </header>
 
@@ -976,8 +988,8 @@ Rules: output JSON only. Do not explain your reasoning.</pre></details>
     <h2>Method</h2>
     <div class="method">
       <div class="step"><div class="num">01</div><div class="name">generate</div><p>A seeded grammar emits extraction probes around JSON edge cases, and custom probe files can add tool-use and safety cases.</p></div>
-      <div class="step"><div class="num">02</div><div class="name">sample</div><p>Every stack answers every probe N times at temperature 0. Calls are retried with backoff and bounded by a concurrency limit. The modal output and its stability are computed per stack.</p></div>
-      <div class="step"><div class="num">03</div><div class="name">classify</div><p>Stacks that disagree with themselves are marked unstable. The rest are compared structurally, with format-only, semantic, and safety verdicts.</p></div>
+      <div class="step"><div class="num">02</div><div class="name">sample</div><p>Every stack answers every probe N times at temperature 0. Calls are retried with backoff and bounded by a concurrency limit. With a multi-turn config, tool calls are answered from static results and the model continues until it stops or hits the turn budget.</p></div>
+      <div class="step"><div class="num">03</div><div class="name">classify</div><p>Stacks that disagree with themselves are marked unstable. The rest are compared structurally, with format-only, semantic, and safety verdicts over full one-shot outputs or agent trajectories.</p></div>
       <div class="step"><div class="num">04</div><div class="name">minimize</div><p>Each divergence is delta-debugged over prompt segments and re-verified at the full trial count. Only reductions that reproduce the same disagreement are kept.</p></div>
     </div>
   </section>
@@ -991,13 +1003,14 @@ Rules: output JSON only. Do not explain your reasoning.</pre></details>
         <li>Prompts are minimized by removing whole segments (lines and blocks). The minimizer does not rewrite or paraphrase text.</li>
         <li>JSON is compared structurally, with unsafe integers preserved losslessly from the source text. Prose is compared after whitespace normalization.</li>
         <li>Native tool calls are normalized to <code>{name, arguments}</code>. Provider ids, envelopes, and serialization differences are ignored; tool choice and argument values are compared.</li>
+        <li>In agent mode, tool calls are answered from static <code>toolResults</code> values. skew never executes a tool or performs a real side effect. The trace compares call order, arguments, the final answer, and where the loop stopped. Intermediate narration before a tool call is omitted by default because it is high-variance; set <code>agentText</code> to <code>all</code> to compare it too.</li>
         <li>Stacks speak either OpenAI chat-completions or the Anthropic Messages API. Provider-specific sampling controls are not compared.</li>
       </ul>
     </div>
   </section>
 
   <footer>
-    <span>skew v0.4.0 · 18 findings · 151 minimization checks</span>
+    <span>skew v0.5.0 · 18 findings · 151 minimization checks</span>
     <span>machine-readable artifacts: findings.jsonl · summary.json</span>
   </footer>
 </div>

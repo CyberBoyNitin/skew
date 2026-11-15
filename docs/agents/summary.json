@@ -1,0 +1,39 @@
+{
+  "meta": {
+    "startedAt": "2026-11-14T06:35:13.754Z",
+    "durationS": 967.77,
+    "seed": 31,
+    "probeCount": 6,
+    "trials": 3,
+    "maxTurns": 4,
+    "stacks": [
+      "gpt-oss-120b",
+      "claude-sonnet-anthropic"
+    ],
+    "version": "0.5.0",
+    "origin": "live"
+  },
+  "stats": {
+    "calls": 137,
+    "errors": 0,
+    "retries": 0,
+    "minimizeChecks": 9
+  },
+  "counts": {
+    "total": 3,
+    "safety": 0,
+    "semantic": 3,
+    "format-only": 0
+  },
+  "unstable": [
+    {
+      "stackA": "gpt-oss-120b",
+      "stackB": "claude-sonnet-anthropic",
+      "probes": 3,
+      "exampleProbe": "agent-refund-precision",
+      "stabilityA": 1,
+      "stabilityB": 0.6666666666666666
+    }
+  ],
+  "errorSamples": []
+}

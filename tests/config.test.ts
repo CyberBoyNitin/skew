@@ -108,6 +108,110 @@ test("tool parameters default to an empty object schema", () => {
   });
 });
 
+test("agent loop config parses maxTurns and static tool results", () => {
+  const tool = {
+    name: "lookup_customer",
+    description: "Look up a customer by email.",
+    parameters: { type: "object", properties: { email: { type: "string" } } },
+  };
+  const config = normalizeConfig({
+    stacks: STACKS,
+    maxTurns: 4,
+    tools: [tool],
+    toolResults: {
+      lookup_customer: { id: "cus_1042", status: "active" },
+    },
+  });
+
+  assert.equal(config.maxTurns, 4);
+  assert.equal(config.agentText, "final");
+  assert.deepEqual(config.toolResults, {
+    lookup_customer: { id: "cus_1042", status: "active" },
+  });
+});
+
+test("agentText accepts all and rejects unknown modes", () => {
+  const config = normalizeConfig({
+    stacks: STACKS,
+    agentText: "all",
+  });
+  assert.equal(config.agentText, "all");
+
+  assert.throws(
+    () => normalizeConfig({ stacks: STACKS, agentText: "every" }),
+    /agentText must be/,
+  );
+});
+
+test("agent loop config requires a result for every tool", () => {
+  const tool = {
+    name: "lookup_customer",
+    description: "Look up a customer by email.",
+  };
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+      }),
+    /requires config\.toolResults/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+        toolResults: {},
+      }),
+    /missing a result/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+        toolResults: {
+          lookup_customer: {},
+          other_tool: {},
+        },
+      }),
+    /unknown tool/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 1,
+        tools: [tool],
+        toolResults: {
+          lookup_customer: {},
+        },
+      }),
+    /requires maxTurns >= 2/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+        toolChoice: "none",
+        toolResults: {
+          lookup_customer: {},
+        },
+      }),
+    /toolChoice "none"/,
+  );
+});
+
 test("protocol selects the runner implementation", () => {
   const config = normalizeConfig({
     stacks: [

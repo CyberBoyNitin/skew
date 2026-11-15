@@ -1,8 +1,8 @@
 # skew
 
 **Differential fuzzing for LLM stacks.** Find where two models, providers, or
-quantizations behave differently on the same prompt — then minimize each
-disagreement to its smallest reproducible form.
+quantizations behave differently on the same prompt or multi-turn tool workflow —
+then minimize each disagreement to its smallest reproducible form.
 
 ![skew report](docs/demo/report.png)
 
@@ -57,6 +57,32 @@ minimized prompt, so every finding stands on its own.
 
 Each is one small run against hosted models, not a benchmark. The recorded
 fixtures replay offline without the gateway or model credentials.
+
+### Multi-turn agent loops
+
+[`docs/agents/`](docs/agents/) compares an OpenAI stack with an Anthropic stack
+on six agent probes. Every tool call is answered from static, configured results
+and the loop runs for up to four model calls:
+
+```text
+stacks   gpt-oss-120b, claude-sonnet-anthropic
+found    3 divergences (0 safety, 3 semantic, 0 format-only) · 1 unstable pair
+calls    137   errors 0   minimization checks 9
+```
+
+The stable findings include trajectory and final-answer differences: one stack
+called customer lookup → order lookup → refund as three separate turns, while the
+other batched the first two lookups into one turn. Another probe showed serial vs
+parallel customer lookups. The unstable pair covered an intermittent float
+divergence and two wording/retry variations; `skew` excluded them rather than
+reporting a false positive.
+
+```bash
+npm run replay:agent
+```
+
+See [`docs/agents/README.md`](docs/agents/README.md) for the loop semantics,
+what was excluded, and the full caveats.
 
 ### Native tool calls
 
@@ -146,6 +172,11 @@ The hard part is not generating prompts. It is making the result trustworthy:
 - **Native tool calls.** OpenAI and Anthropic tool calls are normalized to the
   same `{name, arguments}` shape, so tool choice and arguments can be compared
   across protocols. Provider ids and envelopes are ignored.
+- **Bounded agent loops.** With `maxTurns` greater than one, tool calls are
+  answered from static config results and the model continues until it stops or
+  hits the budget. The compared trajectory includes call order, arguments, the
+  final answer, and where the loop ended. Pre-tool narration is excluded by
+  default because it is high-variance.
 - **Two wire protocols.** OpenAI chat-completions and Anthropic Messages stacks
   run through the same sampler, classifier, minimizer, and replay format.
 - **Fingerprint-preserving minimization.** Delta debugging keeps reducing a
@@ -166,10 +197,12 @@ The hard part is not generating prompts. It is making the result trustworthy:
    characters, dates, booleans. Custom probe files can add native tool tasks.
 2. **Sample** — every stack answers every probe N times at temperature 0, with
    retries and a concurrency cap. OpenAI chat-completions and Anthropic Messages
-   stacks share the same harness. The modal output and its stability are computed
-   per stack.
+   stacks share the same harness. With `maxTurns` greater than one, each tool
+   call is answered from static results and the loop continues. The modal output
+   or trajectory and its stability are computed per stack.
 3. **Classify** — stacks that disagree with themselves are marked unstable.
-   Stable disagreements are compared structurally and labeled.
+   Stable disagreements are compared structurally and labeled. Agent traces are
+   canonical JSON, so the same comparison and fingerprinting rules apply.
 4. **Minimize** — ddmin removes prompt segments while the disagreement
    fingerprint persists, capped by a check budget, then verifies the reduced
    prompt at the full trial count.
@@ -209,6 +242,8 @@ usage errors.
   "retries": 2,
   "retryDelayMs": 500,
   "retryMaxDelayMs": 8000,
+  "maxTurns": 1,
+  "agentText": "final",
   "stacks": [
     {
       "name": "hosted-mini",
@@ -258,6 +293,43 @@ definitions for both protocols. Calls are normalized to
 visible as text. See [`examples/tools.config.json`](examples/tools.config.json)
 for a complete run.
 
+### Agent loops
+
+Set `maxTurns` above 1 to compare multi-turn tool trajectories. Every configured
+tool needs a static result, so the loop is deterministic and replayable:
+
+```json
+{
+  "maxTurns": 4,
+  "agentText": "final",
+  "tools": [
+    {
+      "name": "lookup_customer",
+      "description": "Look up a customer by email.",
+      "parameters": {
+        "type": "object",
+        "properties": { "email": { "type": "string" } },
+        "required": ["email"]
+      }
+    }
+  ],
+  "toolResults": {
+    "lookup_customer": { "customer_id": "cus_1042", "status": "active" }
+  }
+}
+```
+
+`maxTurns` counts model calls. A model may emit several tool calls in one turn.
+String tool results are sent verbatim; other JSON values are serialized. A call
+to an unknown tool receives a JSON error result and stays visible in the trace.
+`skew` never executes a tool, so there are no real side effects.
+
+`agentText` controls whether assistant prose before a tool call is compared:
+`final` (default) compares only the final answer, while `all` compares every
+assistant message. The full trace still records every call, result, and the
+`finish` state (`final` or `max_turns`). See
+[`examples/agent.config.json`](examples/agent.config.json) for a complete run.
+
 Probe files are resolved relative to the config file. Retries apply to transport
 errors plus HTTP 408, 409, 425, 429, and 5xx; other 4xx responses fail fast.
 `maxTokens` caps generation per call (default 512). Lower it for slow local
@@ -298,6 +370,9 @@ as JSONL:
   It defaults to `[0]`, so the instruction line survives by default.
 - IDs must be unique across generated and custom probes.
 - `probes: 0` disables the generator for custom-only suites.
+- For agent loops, write prompts that require the tool chain you want to test
+  (for example lookup → order → refund) and give each step its own segment so
+  minimization can remove filler without losing the task.
 
 ## Record and replay
 
@@ -309,10 +384,13 @@ node src/cli.ts run --config skew.config.json --record fixtures/run-001
 node src/cli.ts run --config skew.config.json --replay fixtures/run-001
 ```
 
-`--record` writes one JSONL file per stack plus a manifest. `--replay` feeds
-those completions back through the same harness, so probes, classification,
-minimization, and final verification all run deterministically. Recording keeps
-successful completions only; a replay miss is a hard, non-retryable error.
+`--record` writes one JSONL file per stack plus a manifest. One-shot completions
+are keyed by prompt and trial; agent turns are keyed by the full message history
+and trial. `--replay` feeds those responses back through the same harness, so
+probes, classification, minimization, loop execution, and final verification all
+run deterministically. Recording keeps successful responses only; a replay miss
+is a hard, non-retryable error. Replay an agent run with the same tools,
+`toolResults`, `maxTurns`, and `agentText` config.
 
 ## CLI
 
@@ -338,8 +416,9 @@ skew run --config <file> [options]  compare live OpenAI or Anthropic stacks
 - **Lossless JSON.** The `JSON.parse` reviver receives the source text for each
   primitive, which lets `skew` keep unsafe integers exact instead of losing
   precision in `Number`. This is what makes big-integer divergence detectable.
-- **Stability before comparison.** The modal output must appear in at least
-  `minStability` of trials. Otherwise the pair is `unstable`, not a finding.
+- **Stability before comparison.** The modal output or agent trajectory must
+  appear in at least `minStability` of trials. Otherwise the pair is `unstable`,
+  not a finding.
 - **Disagreement fingerprint.** A structural diff of the two outputs, reduced
   to the paths and values that actually differ. Minimization preserves it, so
   incidental fields can disappear from a repro without changing its meaning.
@@ -355,12 +434,18 @@ skew run --config <file> [options]  compare live OpenAI or Anthropic stacks
   classification, minimization, and replay do not branch by provider.
 - **Tool-call normalization.** OpenAI argument strings and Anthropic `input`
   objects are parsed into the same shape. Unsafe integers in arguments stay
-  lossless; provider tool ids are discarded.
+  lossless. Provider tool ids are retained internally so the next turn can
+  reference the call, then omitted from compared traces.
+- **Bounded agent loop.** `maxTurns` caps model calls per trajectory. Tool calls
+  are answered from static `toolResults`, the resulting messages are translated
+  back to each protocol, and the loop stops on a final answer or the budget.
+  `agentText` decides whether pre-tool narration is compared.
 - **Output caps.** Every request sends `max_tokens` (default 512) so a chatty
   model cannot stall a run with unbounded generation.
-- **Record/replay.** Each successful completion is keyed by stack, prompt, and
-  trial. Replaying a fixture directory exercises the real harness and minimizer
-  without making a network call, which is how the CLI-level replay test works.
+- **Record/replay.** Each successful completion is keyed by stack, prompt or
+  message history, and trial. Replaying a fixture directory exercises the real
+  harness, minimizer, and agent loop without making a network call, which is how
+  the CLI-level replay tests work.
 - **Zero runtime dependencies.** Node 24 runs the TypeScript sources directly;
   `npm run build` emits plain ESM for distribution.
 
@@ -372,18 +457,26 @@ skew run --config <file> [options]  compare live OpenAI or Anthropic stacks
   The final check always uses the full trial count.
 - Prompt minimization removes whole segments (lines and blocks); it does not
   rewrite text. Custom probes are compared as-is, with no ground-truth answer.
-- Recordings contain successful completions only. A replayed run must use the
-  same probe set, seed, trial count, and minimization budget; otherwise a prompt
-  can miss the fixture and fail loudly. Tool definitions live in the config, so
-  replay with the same config.
+- Recordings contain successful responses only. A replayed run must use the same
+  probe set, seed, trial count, minimization budget, tool definitions,
+  `toolResults`, `maxTurns`, and `agentText`; otherwise a request can miss the
+  fixture and fail loudly.
+- Agent tool results are static config values. `skew` does not execute tools,
+  validate arguments against a live backend, or test recovery from real tool
+  failures. Unknown tool names receive a JSON error result.
+- `maxTurns` is a hard budget. A trace that ends with `finish: "max_turns"` did
+  not produce a final answer inside the budget.
+- `agentText: "final"` deliberately ignores pre-tool narration. This reduces
+  noise but can hide a refusal or hedge that appears before a tool call; use
+  `agentText: "all"` when that text matters.
 - Anthropic Messages has no seed parameter. OpenAI stacks send the trial index
   as a seed; Anthropic stacks rely on repeated sampling for stability.
 - Hosted free tiers rate-limit aggressively. The retry budget and
   `retryMaxDelayMs` should be large enough to wait out a reset; the extraction
   run uses one in-flight request and four retries.
 - Only non-streaming OpenAI chat-completions and Anthropic Messages are
-  supported. Tool-result loops, streaming deltas, and provider-native structured
-  outputs are not covered yet.
+  supported. Streaming deltas and provider-native structured outputs are not
+  covered yet.
 - Tool definitions are global to a run: every stack sees the same tools and
   `toolChoice`. Comparing stacks with intentionally different tool schemas is not
   supported yet.

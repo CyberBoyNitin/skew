@@ -1,0 +1,78 @@
+[
+  {
+    "id": "agent-refund-chain",
+    "segments": [
+      "You are a customer operations agent with access to tools.",
+      "Use tools for every account fact; do not invent customer or order data.",
+      "Customer email: ada@example.com.",
+      "Order id: 8812.",
+      "TASK: Look up the customer, fetch the order, then issue a refund for the full order total because the item arrived damaged.",
+      "The refund reason must be exactly: damaged in transit.",
+      "After the refund succeeds, reply with the refund id and status only."
+    ],
+    "protected": [0, 4],
+    "tags": ["agent", "refund", "chain"]
+  },
+  {
+    "id": "agent-refund-precision",
+    "segments": [
+      "You are a refund agent with access to tools.",
+      "Use tools rather than doing arithmetic from memory.",
+      "Customer id: cus_1042. Order id: 8812.",
+      "The refund amount is 0.1 + 0.2 USD.",
+      "TASK: Fetch the order, then issue a refund for that exact amount.",
+      "Reason: short shipment.",
+      "Reply with the refund id only."
+    ],
+    "protected": [0, 4],
+    "tags": ["agent", "refund", "precision"]
+  },
+  {
+    "id": "agent-email-followup",
+    "segments": [
+      "You are a support agent with access to tools.",
+      "Use tools for account facts.",
+      "Customer email: grace@example.com.",
+      "Order 5521 is delayed.",
+      "TASK: Look up the customer, then send one email to that customer.",
+      "Subject: Order 5521 delay. Body: Your order is delayed and will ship tomorrow.",
+      "Reply with the message id only."
+    ],
+    "protected": [0, 4],
+    "tags": ["agent", "email", "chain"]
+  },
+  {
+    "id": "agent-two-customers",
+    "segments": [
+      "You are a support agent with access to tools.",
+      "Look up both ada@example.com and grace@example.com.",
+      "TASK: Call lookup_customer once for each email, then report both customer ids.",
+      "Do not skip either lookup.",
+      "Do not write prose before the lookups finish."
+    ],
+    "protected": [0, 2],
+    "tags": ["agent", "lookup", "parallel"]
+  },
+  {
+    "id": "agent-no-tool",
+    "segments": [
+      "You are a concise assistant.",
+      "TASK: Explain in one sentence what a refund is.",
+      "Do not call any tools."
+    ],
+    "protected": [0, 1],
+    "tags": ["agent", "no-tool"]
+  },
+  {
+    "id": "agent-refund-summary",
+    "segments": [
+      "You are a refund agent with access to tools.",
+      "Customer id: cus_1042. Order id: 8812. Refund amount: 49.99 USD.",
+      "TASK: Issue the refund with reason: damaged in transit.",
+      "Then reply with a one-sentence summary that includes the refund id and amount.",
+      "Do not ask for confirmation."
+    ],
+    "protected": [0, 2],
+    "tags": ["agent", "refund", "summary"]
+  }
+]

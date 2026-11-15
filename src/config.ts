@@ -4,6 +4,7 @@ import { normalizeProbeSpec } from "./probes.ts";
 import type { ProbeSpec } from "./probes.ts";
 import { AnthropicRunner, HttpRunner } from "./runners.ts";
 import type {
+  AgentText,
   HttpRunnerOptions,
   Protocol,
   Runner,
@@ -38,6 +39,9 @@ export interface SkewConfig {
   retryMaxDelayMs: number;
   tools: ToolDefinition[];
   toolChoice?: ToolChoice;
+  maxTurns: number;
+  toolResults: Record<string, unknown>;
+  agentText: AgentText;
   stacks: StackConfig[];
 }
 
@@ -52,6 +56,8 @@ export const DEFAULTS = {
   retries: 2,
   retryDelayMs: 500,
   retryMaxDelayMs: 8000,
+  maxTurns: 1,
+  agentText: "final",
 } as const;
 
 export async function loadConfig(filePath: string): Promise<SkewConfig> {
@@ -97,6 +103,8 @@ export function normalizeConfig(
     DEFAULTS.retryMaxDelayMs,
     0,
   );
+  const maxTurns = integerField(root, "maxTurns", DEFAULTS.maxTurns, 1);
+  const agentText = agentTextField(root.agentText, DEFAULTS.agentText);
   const minStability = numberField(
     root,
     "minStability",
@@ -140,6 +148,12 @@ export function normalizeConfig(
 
   const tools = normalizeTools(root.tools);
   const toolChoice = normalizeToolChoice(root.toolChoice, tools);
+  const toolResults = normalizeToolResults(
+    root.toolResults,
+    tools,
+    toolChoice,
+    maxTurns,
+  );
 
   const stacks = rawStacks.map((value, index) =>
     normalizeStack(asRecord(value, `config.stacks[${index}]`), index),
@@ -172,6 +186,9 @@ export function normalizeConfig(
     retryMaxDelayMs,
     tools,
     ...(toolChoice !== undefined ? { toolChoice } : {}),
+    maxTurns,
+    toolResults,
+    agentText,
     stacks,
   };
 }
@@ -310,6 +327,59 @@ function normalizeToolChoice(
   return value;
 }
 
+function normalizeToolResults(
+  value: unknown,
+  tools: readonly ToolDefinition[],
+  toolChoice: ToolChoice | undefined,
+  maxTurns: number,
+): Record<string, unknown> {
+  if (value === undefined) {
+    if (maxTurns > 1) {
+      throw new Error("config.maxTurns > 1 requires config.toolResults");
+    }
+    return {};
+  }
+
+  const record = asRecord(value, "config.toolResults");
+  const keys = Object.keys(record);
+
+  if (maxTurns === 1) {
+    if (keys.length > 0) {
+      throw new Error(
+        "config.toolResults requires maxTurns >= 2; raise maxTurns to enable a tool loop",
+      );
+    }
+    return {};
+  }
+
+  if (tools.length === 0) {
+    throw new Error("config.maxTurns > 1 requires at least one config.tools entry");
+  }
+  if (toolChoice === "none") {
+    throw new Error(
+      'config.maxTurns > 1 cannot use toolChoice "none"',
+    );
+  }
+
+  const names = new Set(tools.map((tool) => tool.name));
+  for (const key of keys) {
+    if (!names.has(key)) {
+      throw new Error(
+        `config.toolResults has an entry for unknown tool "${key}"`,
+      );
+    }
+  }
+  for (const tool of tools) {
+    if (!Object.prototype.hasOwnProperty.call(record, tool.name)) {
+      throw new Error(
+        `config.toolResults is missing a result for tool "${tool.name}"`,
+      );
+    }
+  }
+
+  return { ...record };
+}
+
 function asRecord(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);
@@ -354,6 +424,12 @@ function integerField(
     throw new Error(`config.${key} must be an integer >= ${min}`);
   }
   return value as number;
+}
+
+function agentTextField(value: unknown, fallback: AgentText): AgentText {
+  if (value === undefined) return fallback;
+  if (value === "final" || value === "all") return value;
+  throw new Error('config.agentText must be "final" or "all"');
 }
 
 function numberField(

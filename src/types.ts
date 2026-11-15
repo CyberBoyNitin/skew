@@ -1,3 +1,5 @@
+import type { NormalizedToolCall } from "./tools.ts";
+
 export type Verdict = "format-only" | "semantic" | "safety" | "unstable";
 
 export type DivergenceVerdict = Exclude<Verdict, "unstable">;
@@ -6,10 +8,46 @@ export type Protocol = "openai" | "anthropic";
 
 export type ToolChoice = "auto" | "none" | "required";
 
+export type AgentText = "final" | "all";
+
 export interface ToolDefinition {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
+}
+
+/**
+ * A tool call with the provider-issued id retained for multi-turn history.
+ * The id is never compared; it only lets the next request reference the call.
+ */
+export interface AgentToolCall extends NormalizedToolCall {
+  id: string;
+  rawArguments?: string;
+}
+
+export interface UserMessage {
+  role: "user";
+  content: string;
+}
+
+export interface AssistantMessage {
+  role: "assistant";
+  content: string | null;
+  toolCalls: AgentToolCall[];
+}
+
+export interface ToolMessage {
+  role: "tool";
+  toolCallId: string;
+  name: string;
+  content: string;
+}
+
+export type ChatMessage = UserMessage | AssistantMessage | ToolMessage;
+
+export interface ChatResponse {
+  text: string | null;
+  toolCalls: AgentToolCall[];
 }
 
 export interface PairAnalysis {
@@ -23,6 +61,17 @@ export interface PairAnalysis {
 export interface Runner {
   readonly name: string;
   complete(prompt: string, trial?: number): Promise<string>;
+}
+
+export interface AgentRunner extends Runner {
+  completeChat(
+    messages: readonly ChatMessage[],
+    trial?: number,
+  ): Promise<ChatResponse>;
+}
+
+export function isAgentRunner(runner: Runner): runner is AgentRunner {
+  return typeof (runner as Partial<AgentRunner>).completeChat === "function";
 }
 
 export interface RunStats {
@@ -69,6 +118,7 @@ export interface RunMeta {
   seed: number;
   probeCount: number;
   trials: number;
+  maxTurns: number;
   stacks: string[];
   version: string;
   origin: string;
