@@ -1,0 +1,162 @@
+{
+  "seed": 41,
+  "probes": 0,
+  "probeFiles": ["agent-failures.probes.json"],
+  "trials": 3,
+  "minStability": 0.8,
+  "minimize": true,
+  "maxChecks": 3,
+  "concurrency": 2,
+  "retries": 4,
+  "retryDelayMs": 2000,
+  "retryMaxDelayMs": 60000,
+  "maxTurns": 4,
+  "agentText": "none",
+  "tools": [
+    {
+      "name": "lookup_customer",
+      "description": "Look up a customer record by exact email address. The service can return a retryable temporary not_found error.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Exact customer email."
+          }
+        },
+        "required": ["email"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Fetch an order by its exact order id. The service can return a retryable upstream_timeout error.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Exact order id."
+          }
+        },
+        "required": ["order_id"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "issue_refund",
+      "description": "Issue a refund against an order. The processor can permanently decline a request.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "customer_id": { "type": "string" },
+          "order_id": { "type": "string" },
+          "amount": { "type": "number" },
+          "reason": { "type": "string" }
+        },
+        "required": ["customer_id", "order_id", "amount", "reason"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "check_refund_status",
+      "description": "Check the current status of a refund. Status can move from pending to approved.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "refund_id": {
+            "type": "string",
+            "description": "Exact refund id."
+          }
+        },
+        "required": ["refund_id"],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "toolSequences": {
+    "lookup_customer": [
+      {
+        "error": {
+          "code": "not_found",
+          "message": "temporary lookup miss; retry the same lookup once",
+          "retryable": true
+        }
+      },
+      {
+        "result": {
+          "customer_id": "cus_1042",
+          "name": "Ada Lovelace",
+          "email": "ada@example.com",
+          "status": "active",
+          "plan": "pro"
+        }
+      }
+    ],
+    "get_order": [
+      {
+        "error": {
+          "code": "upstream_timeout",
+          "message": "order service timed out; retry the same request once",
+          "retryable": true
+        }
+      },
+      {
+        "result": {
+          "order_id": "8812",
+          "customer_id": "cus_1042",
+          "status": "delivered",
+          "total": 49.99,
+          "currency": "USD",
+          "damaged": true
+        }
+      }
+    ],
+    "issue_refund": [
+      {
+        "error": {
+          "code": "processor_declined",
+          "message": "refund processor declined the request permanently",
+          "retryable": false
+        }
+      }
+    ],
+    "check_refund_status": [
+      {
+        "result": {
+          "refund_id": "re_7781",
+          "status": "pending"
+        }
+      },
+      {
+        "result": {
+          "refund_id": "re_7781",
+          "status": "approved"
+        }
+      }
+    ]
+  },
+  "toolChoice": "auto",
+  "stacks": [
+    {
+      "name": "gpt-oss-120b",
+      "protocol": "openai",
+      "baseUrl": "http://127.0.0.1:20128/v1",
+      "model": "agy/gpt-oss-120b-medium",
+      "apiKeyEnv": "OMNIROUTE_API_KEY",
+      "temperature": 0,
+      "timeoutMs": 120000,
+      "maxTokens": 512
+    },
+    {
+      "name": "claude-sonnet-anthropic",
+      "protocol": "anthropic",
+      "baseUrl": "http://127.0.0.1:20128/v1",
+      "model": "agy/claude-sonnet-4-6",
+      "apiKeyEnv": "OMNIROUTE_API_KEY",
+      "temperature": 0,
+      "timeoutMs": 120000,
+      "maxTokens": 512
+    }
+  ]
+}

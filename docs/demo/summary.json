@@ -1,18 +1,20 @@
 {
   "meta": {
-    "startedAt": "2026-11-15T04:31:34.349Z",
-    "durationS": 0.08,
+    "startedAt": "2026-11-15T06:10:56.269Z",
+    "durationS": 0.22,
     "seed": 7,
     "probeCount": 8,
     "trials": 3,
     "maxTurns": 1,
+    "sequencedTools": 0,
+    "injectedErrors": 0,
     "stacks": [
       "alpha",
       "beta",
       "gamma",
       "delta"
     ],
-    "version": "0.5.0",
+    "version": "0.6.0",
     "origin": "demo"
   },
   "stats": {

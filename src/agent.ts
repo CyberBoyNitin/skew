@@ -3,11 +3,13 @@ import type {
   AgentToolCall,
   ChatMessage,
   ChatResponse,
+  ToolSequenceStep,
 } from "./types.ts";
 
 export interface AgentOptions {
   maxTurns: number;
   toolResults: Record<string, unknown>;
+  toolSequences?: Record<string, readonly ToolSequenceStep[]>;
   agentText: AgentText;
 }
 
@@ -16,7 +18,7 @@ export interface AgentTraceTurn {
     text?: string;
     tool_calls?: Array<{ name: string; arguments: unknown }>;
   };
-  results?: Array<{ name: string; result: unknown }>;
+  results?: Array<{ name: string; result: unknown; is_error?: boolean }>;
 }
 
 export interface AgentTrace {
@@ -28,14 +30,17 @@ interface ResolvedToolResult {
   name: string;
   result: unknown;
   content: string;
+  isError?: boolean;
 }
 
 /**
  * Run one probe through a bounded tool-result loop. Tool execution is
- * deliberately not open-ended: every call is answered from static config
- * values, so the trajectory is deterministic and replayable. The comparison
- * sees assistant text, the sequence of tool calls, and the final turn shape;
- * provider ids and envelope differences stay out of the trace.
+ * deliberately not open-ended: every call is answered from static or
+ * sequenced config values, so the trajectory is deterministic and replayable.
+ * Sequence steps may inject errors, which exercises retry and recovery paths
+ * without a live backend. The comparison sees assistant text, the sequence of
+ * tool calls and results, and the final turn shape; provider ids and envelope
+ * differences stay out of the trace.
  */
 export async function runAgent(
   prompt: string,
@@ -44,13 +49,14 @@ export async function runAgent(
 ): Promise<string> {
   const messages: ChatMessage[] = [{ role: "user", content: prompt }];
   const turns: AgentTraceTurn[] = [];
+  const callCounts = new Map<string, number>();
   let finish: AgentTrace["finish"] = "max_turns";
 
   for (let turn = 0; turn < options.maxTurns; turn += 1) {
     const response = await call(messages);
     const assistant = assistantTrace(response, options.agentText);
     const resolved = response.toolCalls.map((toolCall) =>
-      resolveToolResult(toolCall, options.toolResults),
+      resolveToolResult(toolCall, options, callCounts),
     );
 
     const traceTurn: AgentTraceTurn = { assistant };
@@ -58,6 +64,7 @@ export async function runAgent(
       traceTurn.results = resolved.map((item) => ({
         name: item.name,
         result: item.result,
+        ...(item.isError ? { is_error: true } : {}),
       }));
     }
     turns.push(traceTurn);
@@ -78,6 +85,7 @@ export async function runAgent(
         toolCallId: item.toolCallId,
         name: item.name,
         content: item.content,
+        ...(item.isError ? { isError: true } : {}),
       });
     }
   }
@@ -92,7 +100,8 @@ function assistantTrace(
 ): AgentTraceTurn["assistant"] {
   const assistant: AgentTraceTurn["assistant"] = {};
   const includeText =
-    agentText === "all" || response.toolCalls.length === 0;
+    agentText === "all" ||
+    (agentText === "final" && response.toolCalls.length === 0);
   if (includeText && response.text !== null && response.text.trim() !== "") {
     assistant.text = response.text;
   }
@@ -111,11 +120,37 @@ interface ResolvedToolResultInternal extends ResolvedToolResult {
 
 function resolveToolResult(
   call: AgentToolCall,
-  configured: Record<string, unknown>,
+  options: AgentOptions,
+  callCounts: Map<string, number>,
 ): ResolvedToolResultInternal {
-  const known = Object.prototype.hasOwnProperty.call(configured, call.name);
+  const sequence = options.toolSequences?.[call.name];
+  if (sequence !== undefined && sequence.length > 0) {
+    const count = callCounts.get(call.name) ?? 0;
+    callCounts.set(call.name, count + 1);
+    const step = sequence[Math.min(count, sequence.length - 1)]!;
+    if ("error" in step) {
+      return {
+        toolCallId: call.id,
+        name: call.name,
+        result: step.error,
+        content: stringifyResult(step.error),
+        isError: true,
+      };
+    }
+    return {
+      toolCallId: call.id,
+      name: call.name,
+      result: step.result,
+      content: stringifyResult(step.result),
+    };
+  }
+
+  const known = Object.prototype.hasOwnProperty.call(
+    options.toolResults,
+    call.name,
+  );
   const result = known
-    ? configured[call.name]
+    ? options.toolResults[call.name]
     : { error: `unknown tool: ${call.name}` };
   return {
     toolCallId: call.id,

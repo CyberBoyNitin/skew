@@ -8,13 +8,22 @@ export type Protocol = "openai" | "anthropic";
 
 export type ToolChoice = "auto" | "none" | "required";
 
-export type AgentText = "final" | "all";
+export type AgentText = "none" | "final" | "all";
 
 export interface ToolDefinition {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
 }
+
+/**
+ * One scripted response for a tool. Result steps are normal tool output;
+ * error steps are returned to the model as an error result. The distinction
+ * lets a config exercise retry and recovery paths without executing anything.
+ */
+export type ToolSequenceStep =
+  | { result: unknown }
+  | { error: unknown };
 
 /**
  * A tool call with the provider-issued id retained for multi-turn history.
@@ -41,6 +50,7 @@ export interface ToolMessage {
   toolCallId: string;
   name: string;
   content: string;
+  isError?: boolean;
 }
 
 export type ChatMessage = UserMessage | AssistantMessage | ToolMessage;
@@ -119,6 +129,8 @@ export interface RunMeta {
   probeCount: number;
   trials: number;
   maxTurns: number;
+  sequencedTools?: number;
+  injectedErrors?: number;
   stacks: string[];
   version: string;
   origin: string;

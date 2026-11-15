@@ -14,6 +14,7 @@ import type {
   Run,
   Runner,
   RunStats,
+  ToolSequenceStep,
   UnstableGroup,
 } from "./types.ts";
 import { VERSION } from "./version.ts";
@@ -34,6 +35,7 @@ export interface HarnessOptions {
   retryMaxDelayMs?: number;
   maxTurns?: number;
   toolResults?: Record<string, unknown>;
+  toolSequences?: Record<string, ToolSequenceStep[]>;
   agentText?: AgentText;
 }
 
@@ -61,6 +63,7 @@ export class Harness {
   private readonly retryMaxDelayMs: number;
   private readonly maxTurns: number;
   private readonly toolResults: Record<string, unknown>;
+  private readonly toolSequences: Record<string, ToolSequenceStep[]>;
   private readonly agentText: AgentText;
   private readonly semaphore: Semaphore;
 
@@ -90,17 +93,29 @@ export class Harness {
       throw new Error("maxTurns must be an integer of at least 1");
     }
     const toolResults = options.toolResults ?? {};
+    const toolSequences = options.toolSequences ?? {};
     if (
       maxTurns > 1 &&
-      (typeof toolResults !== "object" ||
-        toolResults === null ||
-        Object.keys(toolResults).length === 0)
+      Object.keys(toolResults).length === 0 &&
+      Object.keys(toolSequences).length === 0
     ) {
-      throw new Error("agent loops require at least one toolResults entry");
+      throw new Error(
+        "agent loops require at least one toolResults or toolSequences entry",
+      );
+    }
+    if (maxTurns === 1 && Object.keys(toolSequences).length > 0) {
+      throw new Error("toolSequences requires maxTurns > 1");
+    }
+    for (const name of Object.keys(toolSequences)) {
+      if (Object.prototype.hasOwnProperty.call(toolResults, name)) {
+        throw new Error(
+          `tool "${name}" has both toolResults and toolSequences`,
+        );
+      }
     }
     const agentText = options.agentText ?? "final";
-    if (agentText !== "final" && agentText !== "all") {
-      throw new Error('agentText must be "final" or "all"');
+    if (agentText !== "none" && agentText !== "final" && agentText !== "all") {
+      throw new Error('agentText must be "none", "final", or "all"');
     }
 
     this.probes = options.probes;
@@ -117,6 +132,7 @@ export class Harness {
     this.retryMaxDelayMs = options.retryMaxDelayMs ?? 8000;
     this.maxTurns = maxTurns;
     this.toolResults = toolResults;
+    this.toolSequences = toolSequences;
     this.agentText = agentText;
     this.semaphore = new Semaphore(options.concurrency ?? 4);
 
@@ -229,6 +245,12 @@ export class Harness {
         probeCount: this.probes.length,
         trials: this.trials,
         maxTurns: this.maxTurns,
+        sequencedTools: Object.keys(this.toolSequences).length,
+        injectedErrors: Object.values(this.toolSequences).reduce(
+          (total, sequence) =>
+            total + sequence.filter((step) => "error" in step).length,
+          0,
+        ),
         stacks: this.stacks.map((stack) => stack.name),
         version: this.version,
         origin: this.origin,
@@ -252,6 +274,7 @@ export class Harness {
       this.maxTurns,
       this.agentText,
       this.toolResults,
+      this.toolSequences,
     ]);
     const cached = this.cache.get(key);
     if (cached) return cached;
@@ -313,6 +336,7 @@ export class Harness {
       {
         maxTurns: this.maxTurns,
         toolResults: this.toolResults,
+        toolSequences: this.toolSequences,
         agentText: this.agentText,
       },
       (messages) => this.chatWithRetry(stack, messages, trial),

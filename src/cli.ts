@@ -18,6 +18,7 @@ import type {
   DivergenceVerdict,
   Run,
   Runner,
+  ToolSequenceStep,
 } from "./types.ts";
 import { VERSION } from "./version.ts";
 
@@ -74,6 +75,7 @@ interface ExecuteOptions {
   retryMaxDelayMs: number;
   maxTurns: number;
   toolResults: Record<string, unknown>;
+  toolSequences: Record<string, ToolSequenceStep[]>;
   agentText: AgentText;
   origin: string;
   outDir: string;
@@ -153,6 +155,7 @@ async function main(argv: string[]): Promise<void> {
       retryMaxDelayMs: 8000,
       maxTurns: 1,
       toolResults: {},
+      toolSequences: {},
       agentText: "final",
       origin: "demo",
       outDir,
@@ -220,6 +223,7 @@ async function main(argv: string[]): Promise<void> {
       retryMaxDelayMs: config.retryMaxDelayMs,
       maxTurns: config.maxTurns,
       toolResults: config.toolResults,
+      toolSequences: config.toolSequences,
       agentText: config.agentText,
       origin: values.replay ? "replay" : "live",
       outDir,
@@ -254,6 +258,7 @@ async function execute(options: ExecuteOptions): Promise<number> {
     retryMaxDelayMs: options.retryMaxDelayMs,
     maxTurns: options.maxTurns,
     toolResults: options.toolResults,
+    toolSequences: options.toolSequences,
     agentText: options.agentText,
   });
 

@@ -75,6 +75,7 @@ export type {
   ToolChoice,
   ToolDefinition,
   ToolMessage,
+  ToolSequenceStep,
   UnstableGroup,
   UserMessage,
   Verdict,

@@ -10,6 +10,7 @@ import type {
   Runner,
   ToolChoice,
   ToolDefinition,
+  ToolSequenceStep,
 } from "./types.ts";
 
 export interface StackConfig {
@@ -41,6 +42,7 @@ export interface SkewConfig {
   toolChoice?: ToolChoice;
   maxTurns: number;
   toolResults: Record<string, unknown>;
+  toolSequences: Record<string, ToolSequenceStep[]>;
   agentText: AgentText;
   stacks: StackConfig[];
 }
@@ -148,11 +150,15 @@ export function normalizeConfig(
 
   const tools = normalizeTools(root.tools);
   const toolChoice = normalizeToolChoice(root.toolChoice, tools);
-  const toolResults = normalizeToolResults(
-    root.toolResults,
+  const toolResults = normalizeToolResults(root.toolResults, tools);
+  const toolSequences = normalizeToolSequences(root.toolSequences, tools);
+  validateToolConfiguration(
     tools,
     toolChoice,
     maxTurns,
+    toolResults,
+    toolSequences,
+    root.toolResults !== undefined || root.toolSequences !== undefined,
   );
 
   const stacks = rawStacks.map((value, index) =>
@@ -188,6 +194,7 @@ export function normalizeConfig(
     ...(toolChoice !== undefined ? { toolChoice } : {}),
     maxTurns,
     toolResults,
+    toolSequences,
     agentText,
     stacks,
   };
@@ -330,54 +337,130 @@ function normalizeToolChoice(
 function normalizeToolResults(
   value: unknown,
   tools: readonly ToolDefinition[],
-  toolChoice: ToolChoice | undefined,
-  maxTurns: number,
 ): Record<string, unknown> {
-  if (value === undefined) {
-    if (maxTurns > 1) {
-      throw new Error("config.maxTurns > 1 requires config.toolResults");
-    }
-    return {};
-  }
+  if (value === undefined) return {};
 
   const record = asRecord(value, "config.toolResults");
-  const keys = Object.keys(record);
-
-  if (maxTurns === 1) {
-    if (keys.length > 0) {
-      throw new Error(
-        "config.toolResults requires maxTurns >= 2; raise maxTurns to enable a tool loop",
-      );
-    }
-    return {};
-  }
-
-  if (tools.length === 0) {
-    throw new Error("config.maxTurns > 1 requires at least one config.tools entry");
-  }
-  if (toolChoice === "none") {
-    throw new Error(
-      'config.maxTurns > 1 cannot use toolChoice "none"',
-    );
-  }
-
   const names = new Set(tools.map((tool) => tool.name));
-  for (const key of keys) {
+  for (const key of Object.keys(record)) {
     if (!names.has(key)) {
       throw new Error(
         `config.toolResults has an entry for unknown tool "${key}"`,
       );
     }
   }
-  for (const tool of tools) {
-    if (!Object.prototype.hasOwnProperty.call(record, tool.name)) {
+  return { ...record };
+}
+
+function normalizeToolSequences(
+  value: unknown,
+  tools: readonly ToolDefinition[],
+): Record<string, ToolSequenceStep[]> {
+  if (value === undefined) return {};
+
+  const record = asRecord(value, "config.toolSequences");
+  const names = new Set(tools.map((tool) => tool.name));
+  const sequences: Record<string, ToolSequenceStep[]> = {};
+
+  for (const [key, raw] of Object.entries(record)) {
+    if (!names.has(key)) {
       throw new Error(
-        `config.toolResults is missing a result for tool "${tool.name}"`,
+        `config.toolSequences has an entry for unknown tool "${key}"`,
+      );
+    }
+    if (!Array.isArray(raw) || raw.length === 0) {
+      throw new Error(
+        `config.toolSequences.${key} must be a non-empty array`,
+      );
+    }
+    sequences[key] = raw.map((step, index) =>
+      normalizeToolStep(step, `config.toolSequences.${key}[${index}]`),
+    );
+  }
+
+  return sequences;
+}
+
+function normalizeToolStep(
+  value: unknown,
+  label: string,
+): ToolSequenceStep {
+  const record = asRecord(value, label);
+  const hasResult = Object.prototype.hasOwnProperty.call(record, "result");
+  const hasError = Object.prototype.hasOwnProperty.call(record, "error");
+  if (hasResult === hasError) {
+    throw new Error(
+      `${label} must contain exactly one of "result" or "error"`,
+    );
+  }
+  return hasResult
+    ? { result: record.result }
+    : { error: record.error };
+}
+
+function validateToolConfiguration(
+  tools: readonly ToolDefinition[],
+  toolChoice: ToolChoice | undefined,
+  maxTurns: number,
+  toolResults: Record<string, unknown>,
+  toolSequences: Record<string, ToolSequenceStep[]>,
+  hasToolConfig: boolean,
+): void {
+  const resultKeys = Object.keys(toolResults);
+  const sequenceKeys = Object.keys(toolSequences);
+
+  if (maxTurns === 1) {
+    if (resultKeys.length > 0) {
+      throw new Error(
+        "config.toolResults requires maxTurns >= 2; raise maxTurns to enable a tool loop",
+      );
+    }
+    if (sequenceKeys.length > 0) {
+      throw new Error(
+        "config.toolSequences requires maxTurns >= 2; raise maxTurns to enable a tool loop",
+      );
+    }
+    return;
+  }
+
+  if (tools.length === 0) {
+    throw new Error(
+      "config.maxTurns > 1 requires at least one config.tools entry",
+    );
+  }
+  if (toolChoice === "none") {
+    throw new Error('config.maxTurns > 1 cannot use toolChoice "none"');
+  }
+  if (
+    !hasToolConfig &&
+    resultKeys.length === 0 &&
+    sequenceKeys.length === 0
+  ) {
+    throw new Error(
+      "config.maxTurns > 1 requires config.toolResults or config.toolSequences",
+    );
+  }
+
+  for (const tool of tools) {
+    const hasResult = Object.prototype.hasOwnProperty.call(
+      toolResults,
+      tool.name,
+    );
+    const hasSequence = Object.prototype.hasOwnProperty.call(
+      toolSequences,
+      tool.name,
+    );
+    if (hasResult && hasSequence) {
+      throw new Error(
+        `config.toolResults.${tool.name} cannot be combined with config.toolSequences.${tool.name}`,
+      );
+    }
+    if (!hasResult && !hasSequence) {
+      throw new Error(
+        `config.toolResults or config.toolSequences is missing a result for tool "${tool.name}"`,
       );
     }
   }
-
-  return { ...record };
 }
 
 function asRecord(value: unknown, label: string): Record<string, unknown> {
@@ -428,8 +511,8 @@ function integerField(
 
 function agentTextField(value: unknown, fallback: AgentText): AgentText {
   if (value === undefined) return fallback;
-  if (value === "final" || value === "all") return value;
-  throw new Error('config.agentText must be "final" or "all"');
+  if (value === "none" || value === "final" || value === "all") return value;
+  throw new Error('config.agentText must be "none", "final", or "all"');
 }
 
 function numberField(
