@@ -76,6 +76,7 @@ body{
 .warn{color:var(--amber)}
 .tag{border:1px solid var(--line);border-radius:3px;padding:0 5px;font-size:10px;color:var(--muted)}
 .f-block{margin-top:13px}
+.f-followups{margin-top:9px}
 .f-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--dim);margin-bottom:6px;display:flex;justify-content:space-between;gap:12px}
 pre{margin:0;background:var(--panel-2);border:1px solid var(--line-soft);border-radius:7px;padding:12px 14px;font-family:var(--mono);font-size:11.5px;line-height:1.65;color:#cfd5df;overflow:auto;max-height:250px;white-space:pre-wrap;word-break:break-word}
 .trace{margin:0;background:var(--panel-2);border:1px solid var(--line-soft);border-radius:7px;padding:6px 12px;max-height:360px;overflow:auto}
@@ -92,6 +93,8 @@ pre{margin:0;background:var(--panel-2);border:1px solid var(--line-soft);border-
 .tr-res-label{font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-left:3px}
 .tr-res{color:var(--muted)}
 .tr-text{font-family:var(--mono);font-size:11px;line-height:1.65;color:#cfd5df;white-space:pre-wrap;word-break:break-word}
+.tr-user{font-family:var(--mono);font-size:11px;line-height:1.65;color:#e9c98f;border-left:2px solid var(--gold);padding-left:8px;margin-bottom:5px;white-space:pre-wrap;word-break:break-word}
+.tr-user-label{font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold);margin-right:4px}
 .tr-finish{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);padding:7px 0 4px 28px}
 .tr-empty{color:var(--dim);font-family:var(--mono);font-size:10px}
 .trace + details pre{max-height:220px}
@@ -171,8 +174,11 @@ export function printSummary(run: Run, outDir: string): void {
     sequencedTools > 0
       ? `   sequences   ${sequencedTools}${injectedErrors > 0 ? ` (${injectedErrors} error steps)` : ""}`
       : "";
+  const followUps = run.meta.followUps ?? 0;
+  const conversations =
+    followUps > 0 ? `   follow-ups   ${followUps}` : "";
   console.log(
-    `probes   ${run.meta.probeCount}   trials   ${run.meta.trials}${turns}${sequences}   calls   ${run.stats.calls}   errors   ${run.stats.errors}${retries}   checks   ${run.stats.minimizeChecks}`,
+    `probes   ${run.meta.probeCount}   trials   ${run.meta.trials}${turns}${sequences}${conversations}   calls   ${run.stats.calls}   errors   ${run.stats.errors}${retries}   checks   ${run.stats.minimizeChecks}`,
   );
   console.log(
     `found    ${counts.total} divergences (${counts.safety} safety, ${counts.semantic} semantic, ${counts["format-only"]} format-only) · ${run.unstable.length} unstable pairs`,
@@ -235,6 +241,11 @@ export function renderHtml(run: Run): string {
     sequencedTools > 0
       ? `\n        <span class="badge demo">${sequencedTools} sequenced tool${sequencedTools === 1 ? "" : "s"}${injectedErrors > 0 ? ` · ${injectedErrors} error step${injectedErrors === 1 ? "" : "s"}` : ""}</span>`
       : "";
+  const followUpCount = run.meta.followUps ?? 0;
+  const followUpBadge =
+    followUpCount > 0
+      ? `\n        <span class="badge demo">${followUpCount} follow-up turn${followUpCount === 1 ? "" : "s"}</span>`
+      : "";
   const retryMeta =
     run.stats.retries > 0 ? ` · <b>retries</b> ${run.stats.retries}` : "";
 
@@ -293,7 +304,7 @@ export function renderHtml(run: Run): string {
         ${originBadge}
         <span class="badge">seed ${run.meta.seed}</span>
         <span class="badge">${run.meta.probeCount} probes</span>
-        <span class="badge">${run.meta.trials} trials</span>${turnBadge}${sequenceBadge}
+        <span class="badge">${run.meta.trials} trials</span>${turnBadge}${sequenceBadge}${followUpBadge}
         <span class="badge">${run.meta.durationS.toFixed(2)}s</span>
       </div>
     </div>
@@ -337,10 +348,10 @@ export function renderHtml(run: Run): string {
       <ul>
         <li>Stability is estimated from ${run.meta.trials} trials. Temperature 0 reduces noise but does not remove it; stacks below the 0.8 threshold are reported as unstable, never as findings.</li>
         <li>Minimization uses one trial per stack because the search is call-heavy. Every reduced prompt is re-checked at the full trial count; if it no longer reproduces, the original prompt is kept and the finding is marked unverified.</li>
-        <li>Prompts are minimized by removing whole segments (lines and blocks). The minimizer does not rewrite or paraphrase text.</li>
+        <li>Prompts are minimized by removing whole segments (lines and blocks). The minimizer does not rewrite or paraphrase text. Scripted follow-up user turns are fixed during minimization.</li>
         <li>JSON is compared structurally, with unsafe integers preserved losslessly from the source text. Prose is compared after whitespace normalization.</li>
         <li>Native tool calls are normalized to <code>{name, arguments}</code>. Provider ids, envelopes, and serialization differences are ignored; tool choice and argument values are compared.</li>
-        <li>In agent mode, tool calls are answered from static <code>toolResults</code> values or ordered <code>toolSequences</code>. skew never executes a tool or performs a real side effect. Each sequence step is a result or an injected error; after the last step, the last step repeats. The trace compares call order, arguments, returned results, injected errors, and where the loop stopped; assistant text is included according to <code>agentText</code>. The default <code>final</code> omits pre-tool narration because it is high-variance. Use <code>all</code> to compare every assistant message, or <code>none</code> to compare only calls, results, and where the loop stopped.</li>
+        <li>In agent mode, tool calls are answered from static <code>toolResults</code> values or ordered <code>toolSequences</code>. skew never executes a tool or performs a real side effect. Each sequence step is a result or an injected error; after the last step, the last step repeats. The trace compares call order, arguments, returned results, injected errors, and where the loop stopped; assistant text is included according to <code>agentText</code>. The default <code>final</code> omits pre-tool narration because it is high-variance. Use <code>all</code> to compare every assistant message, or <code>none</code> to compare only calls, results, and where the loop stopped. Follow-up turns add the next scripted user message after a final answer and count against the same <code>maxTurns</code> budget.</li>
         <li>Stacks speak either OpenAI chat-completions or the Anthropic Messages API. Provider-specific sampling controls are not compared.</li>
       </ul>
     </div>
@@ -373,6 +384,14 @@ function findingCard(finding: Finding): string {
       : "";
   const traceA = renderAgentTrace(finding.outputA);
   const traceB = renderAgentTrace(finding.outputB);
+  const followUpTurns = finding.followUps ?? [];
+  const followUps =
+    followUpTurns.length === 0
+      ? ""
+      : `<div class="f-block f-followups">
+      <div class="f-label"><span>scripted follow-up turns</span><span>${followUpTurns.length}</span></div>
+      <pre>${esc(followUpTurns.map((message, index) => `${index + 1}. ${message}`).join("\n"))}</pre>
+    </div>`;
 
   const original =
     finding.minimized && finding.originalPrompt !== finding.minimizedPrompt
@@ -396,6 +415,7 @@ function findingCard(finding: Finding): string {
   <div class="f-block">
     <div class="f-label"><span>minimized repro</span><span>${finding.minimizedPrompt.length} chars</span></div>
     <pre>${esc(finding.minimizedPrompt)}</pre>
+    ${followUps}
     ${original}
   </div>
   <div class="outputs">
@@ -437,6 +457,11 @@ function renderAgentTrace(output: string): string | null {
         : [];
       const text =
         typeof assistant.text === "string" ? assistant.text : "";
+      const user = typeof turn.user === "string" ? turn.user : "";
+      const userHtml =
+        user === ""
+          ? ""
+          : `<div class="tr-user"><span class="tr-user-label">follow-up</span>${esc(user)}</div>`;
       const callHtml = calls
         .map((call) => {
           if (!isRecord(call)) return "";
@@ -461,9 +486,9 @@ function renderAgentTrace(output: string): string | null {
       const textHtml =
         text === "" ? "" : `<div class="tr-text">${esc(text)}</div>`;
       const body =
-        callHtml + resultHtml + textHtml === ""
+        userHtml + callHtml + resultHtml + textHtml === ""
           ? '<div class="tr-empty">(empty turn)</div>'
-          : callHtml + resultHtml + textHtml;
+          : userHtml + callHtml + resultHtml + textHtml;
       return `<div class="tr-turn"><div class="tr-num">${String(index + 1).padStart(2, "0")}</div><div class="tr-body">${body}</div></div>`;
     })
     .join("");

@@ -77,6 +77,8 @@ export interface AgentRunner extends Runner {
   completeChat(
     messages: readonly ChatMessage[],
     trial?: number,
+    /** Opaque per-probe namespace used by recording and replay. */
+    context?: string,
   ): Promise<ChatResponse>;
 }
 
@@ -94,6 +96,7 @@ export interface RunStats {
 export interface Finding {
   probeId: string;
   tags: string[];
+  followUps?: string[];
   stackA: string;
   stackB: string;
   verdict: DivergenceVerdict;
@@ -131,6 +134,8 @@ export interface RunMeta {
   maxTurns: number;
   sequencedTools?: number;
   injectedErrors?: number;
+  followUpProbes?: number;
+  followUps?: number;
   stacks: string[];
   version: string;
   origin: string;

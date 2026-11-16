@@ -58,6 +58,78 @@ class ScriptedAgent implements AgentRunner {
   }
 }
 
+/**
+ * One tool call on the initial turn. A follow-up agent re-checks after the
+ * scripted user message; the other answers from the conversation context.
+ */
+class FollowUpAgent implements AgentRunner {
+  readonly name: string;
+  private readonly rechecks: boolean;
+
+  constructor(name: string, rechecks: boolean) {
+    this.name = name;
+    this.rechecks = rechecks;
+  }
+
+  async complete(): Promise<string> {
+    return this.name;
+  }
+
+  async completeChat(
+    messages: readonly ChatMessage[],
+  ): Promise<ChatResponse> {
+    const assistantTurns = messages.filter(
+      (message) => message.role === "assistant",
+    ).length;
+    if (assistantTurns === 0) {
+      return toolCallResponse(`call_${this.name}_1`);
+    }
+    if (assistantTurns === 1) {
+      return { text: `${this.name} answered once.`, toolCalls: [] };
+    }
+    if (this.rechecks && assistantTurns === 2) {
+      return toolCallResponse(`call_${this.name}_2`);
+    }
+    return { text: `${this.name} finished.`, toolCalls: [] };
+  }
+}
+
+/** Uses the replay namespace in provider ids, like a live provider would. */
+class ContextAgent implements AgentRunner {
+  readonly name: string;
+
+  constructor(name: string) {
+    this.name = name;
+  }
+
+  async complete(): Promise<string> {
+    return this.name;
+  }
+
+  async completeChat(
+    messages: readonly ChatMessage[],
+    _trial = 0,
+    context = "",
+  ): Promise<ChatResponse> {
+    const assistantTurns = messages.filter(
+      (message) => message.role === "assistant",
+    ).length;
+    if (assistantTurns === 0) {
+      return {
+        text: null,
+        toolCalls: [
+          {
+            id: `call_${this.name}_${context}_1`,
+            name: "ping",
+            arguments: {},
+          },
+        ],
+      };
+    }
+    return { text: `${this.name} ${context} done.`, toolCalls: [] };
+  }
+}
+
 test("runAgent feeds static tool results back and stops on a final answer", async () => {
   const requests: ChatMessage[][] = [];
   const trace = await runAgent(
@@ -160,6 +232,120 @@ test("runAgent stops at the turn budget and marks the trace", async () => {
   assert.deepEqual(parsed.turns[1]!.results, [
     { name: "ping", result: { ok: true } },
   ]);
+});
+
+test("runAgent appends follow-up user turns and keeps tool state", async () => {
+  const requests: ChatMessage[][] = [];
+  let calls = 0;
+  const trace = await runAgent(
+    "Look up Ada.",
+    {
+      maxTurns: 5,
+      toolResults: {},
+      toolSequences: {
+        lookup_customer: [
+          { result: { email: "ada@example.com", status: "active" } },
+          { result: { email: "grace@example.com", status: "trial" } },
+        ],
+      },
+      followUps: ["Now look up Grace.", "Summarize both."],
+      agentText: "final",
+    },
+    async (messages) => {
+      requests.push(structuredClone(messages) as ChatMessage[]);
+      calls += 1;
+      if (calls === 1 || calls === 3) {
+        return {
+          text: null,
+          toolCalls: [
+            {
+              id: `call_${calls}`,
+              name: "lookup_customer",
+              arguments: {
+                email: calls === 1 ? "ada@example.com" : "grace@example.com",
+              },
+            },
+          ],
+        };
+      }
+      const text =
+        calls === 2
+          ? "Ada is active."
+          : calls === 4
+            ? "Grace is active."
+            : "Both are active.";
+      return { text, toolCalls: [] };
+    },
+  );
+
+  const parsed = JSON.parse(trace) as AgentTrace;
+  assert.equal(parsed.finish, "final");
+  assert.equal(parsed.turns.length, 5);
+  assert.equal(parsed.turns[0]!.user, undefined);
+  assert.equal(parsed.turns[1]!.user, undefined);
+  assert.equal(parsed.turns[2]!.user, "Now look up Grace.");
+  assert.equal(parsed.turns[3]!.user, undefined);
+  assert.equal(parsed.turns[4]!.user, "Summarize both.");
+  assert.deepEqual(parsed.turns[2]!.results, [
+    {
+      name: "lookup_customer",
+      result: { email: "grace@example.com", status: "trial" },
+    },
+  ]);
+  assert.equal(parsed.turns[3]!.assistant.text, "Grace is active.");
+  assert.equal(parsed.turns[4]!.assistant.text, "Both are active.");
+
+  assert.equal(requests.length, 5);
+  assert.equal(requests[2]!.length, 5);
+  assert.deepEqual(requests[2]![3], {
+    role: "assistant",
+    content: "Ada is active.",
+    toolCalls: [],
+  });
+  assert.deepEqual(requests[2]![4], {
+    role: "user",
+    content: "Now look up Grace.",
+  });
+  assert.equal(requests[3]!.length, 7);
+  assert.deepEqual(requests[3]!.at(-1), {
+    role: "tool",
+    toolCallId: "call_3",
+    name: "lookup_customer",
+    content: '{"email":"grace@example.com","status":"trial"}',
+  });
+  assert.equal(requests[4]!.length, 9);
+  assert.deepEqual(requests[4]!.at(-1), {
+    role: "user",
+    content: "Summarize both.",
+  });
+});
+
+test("follow-up turns count against the overall turn budget", async () => {
+  const requests: ChatMessage[][] = [];
+  const trace = await runAgent(
+    "Start.",
+    {
+      maxTurns: 2,
+      toolResults: { ping: { ok: true } },
+      followUps: ["Second.", "Third."],
+      agentText: "final",
+    },
+    async (messages) => {
+      requests.push(structuredClone(messages) as ChatMessage[]);
+      return { text: "Done.", toolCalls: [] };
+    },
+  );
+
+  const parsed = JSON.parse(trace) as AgentTrace;
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests[1]!.at(-1), {
+    role: "user",
+    content: "Second.",
+  });
+  assert.equal(parsed.finish, "max_turns");
+  assert.equal(parsed.turns.length, 2);
+  assert.equal(parsed.turns[0]!.user, undefined);
+  assert.equal(parsed.turns[1]!.user, "Second.");
 });
 
 test("runAgent consumes tool sequences by call order and repeats the last step", async () => {
@@ -353,6 +539,50 @@ test("agent traces compare across stacks and count every model call", async () =
   assert.match(html, /raw trace/);
 });
 
+test("follow-up turns surface in findings, run metadata, and reports", async () => {
+  const run = await new Harness({
+    probes: [
+      probeFromSpec({
+        id: "followup-harness",
+        segments: ["Filler context.", "Look up Ada."],
+        protected: [1],
+        followUps: ["Now look up Grace."],
+      }),
+    ],
+    stacks: [
+      new FollowUpAgent("a", true),
+      new FollowUpAgent("b", false),
+    ],
+    trials: 3,
+    minimize: true,
+    maxChecks: 6,
+    maxTurns: 5,
+    toolResults: TOOL_RESULTS,
+    agentText: "none",
+    retries: 0,
+    concurrency: 4,
+    origin: "test",
+  }).run();
+
+  assert.equal(run.findings.length, 1);
+  assert.equal(run.meta.followUpProbes, 1);
+  assert.equal(run.meta.followUps, 1);
+
+  const finding = run.findings[0]!;
+  assert.equal(finding.verdict, "semantic");
+  assert.deepEqual(finding.followUps, ["Now look up Grace."]);
+  assert.equal(finding.minimized, true);
+  assert.equal(finding.minimizedSegments, 1);
+  assert.equal(finding.minimizedPrompt, "Look up Ada.");
+
+  const html = renderHtml(run);
+  assert.match(html, /1 follow-up turn/);
+  assert.match(html, /scripted follow-up turns/);
+  assert.match(html, /Now look up Grace\./);
+  assert.match(html, /class="tr-user"/);
+  assert.match(html, /follow-up/);
+});
+
 test("an agent run records and replays chat turns exactly", async () => {
   const probe = probeFromSpec({
     id: "agent-replay",
@@ -452,4 +682,101 @@ test("an agent run records and replays injected tool errors exactly", async () =
   );
   assert.equal(second.stats.calls, first.stats.calls);
   assert.equal(second.stats.errors, 0);
+});
+
+test("a follow-up conversation records and replays every chat turn", async () => {
+  const probe = probeFromSpec({
+    id: "followup-replay",
+    prompt: "Look up Ada.",
+    followUps: ["Now look up Grace."],
+  });
+  const recorders = [
+    new RecordingRunner(new FollowUpAgent("a", true)),
+    new RecordingRunner(new FollowUpAgent("b", false)),
+  ];
+  const options = {
+    probes: [probe],
+    trials: 2,
+    minimize: false,
+    maxTurns: 4,
+    toolResults: TOOL_RESULTS,
+    agentText: "none" as const,
+    retries: 0,
+    concurrency: 4,
+    origin: "test",
+  };
+  const first = await new Harness({ ...options, stacks: recorders }).run();
+
+  const dir = await mkdtemp(join(tmpdir(), "skew-followup-replay-"));
+  await saveRecordings(dir, recorders, "0.7.0");
+  const replayers = await loadReplayRunners(
+    dir,
+    recorders.map((runner) => runner.name),
+  );
+  const second = await new Harness({ ...options, stacks: replayers }).run();
+
+  assert.equal(first.findings.length, 1);
+  assert.deepEqual(first.findings[0]!.followUps, ["Now look up Grace."]);
+  assert.deepEqual(
+    second.findings.map((finding) => ({
+      probeId: finding.probeId,
+      followUps: finding.followUps,
+      outputA: finding.outputA,
+      outputB: finding.outputB,
+      verdict: finding.verdict,
+    })),
+    first.findings.map((finding) => ({
+      probeId: finding.probeId,
+      followUps: finding.followUps,
+      outputA: finding.outputA,
+      outputB: finding.outputB,
+      verdict: finding.verdict,
+    })),
+  );
+  assert.equal(second.stats.calls, first.stats.calls);
+  assert.equal(second.stats.errors, 0);
+});
+
+test("replay namespaces identical prompts by probe", async () => {
+  const probes = [
+    probeFromSpec({
+      id: "context-a",
+      prompt: "Check the same thing.",
+      followUps: ["Follow-up A."],
+    }),
+    probeFromSpec({
+      id: "context-b",
+      prompt: "Check the same thing.",
+      followUps: ["Follow-up B."],
+    }),
+  ];
+  const recorders = [
+    new RecordingRunner(new ContextAgent("a")),
+    new RecordingRunner(new ContextAgent("b")),
+  ];
+  const options = {
+    probes,
+    trials: 2,
+    minimize: false,
+    maxTurns: 3,
+    toolResults: { ping: { ok: true } },
+    agentText: "none" as const,
+    retries: 0,
+    concurrency: 4,
+    origin: "test",
+  };
+  const first = await new Harness({ ...options, stacks: recorders }).run();
+
+  const dir = await mkdtemp(join(tmpdir(), "skew-context-replay-"));
+  await saveRecordings(dir, recorders, "0.7.0");
+  const replayers = await loadReplayRunners(
+    dir,
+    recorders.map((runner) => runner.name),
+  );
+  const second = await new Harness({ ...options, stacks: replayers }).run();
+
+  assert.equal(first.findings.length, 0);
+  assert.equal(second.findings.length, 0);
+  assert.equal(second.stats.errors, 0);
+  assert.equal(second.stats.calls, first.stats.calls);
 });

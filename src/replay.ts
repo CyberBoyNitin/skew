@@ -21,6 +21,7 @@ export type ReplayEntry =
       kind: "chat";
       messages: ChatMessage[];
       trial: number;
+      context?: string;
       output: ChatResponse;
     };
 
@@ -35,8 +36,14 @@ function textKey(prompt: string, trial: number): string {
   return JSON.stringify(["text", prompt, trial]);
 }
 
-function chatKey(messages: readonly ChatMessage[], trial: number): string {
-  return JSON.stringify(["chat", messages, trial]);
+function chatKey(
+  messages: readonly ChatMessage[],
+  trial: number,
+  context?: string,
+): string {
+  const key: unknown[] = ["chat", messages, trial];
+  if (context !== undefined) key.push(context);
+  return JSON.stringify(key);
 }
 
 export function safeStackName(name: string): string {
@@ -74,6 +81,7 @@ export class RecordingRunner implements AgentRunner {
   async completeChat(
     messages: readonly ChatMessage[],
     trial = 0,
+    context?: string,
   ): Promise<ChatResponse> {
     if (!isAgentRunner(this.inner)) {
       throw new RunnerError(
@@ -81,12 +89,13 @@ export class RecordingRunner implements AgentRunner {
         { retryable: false },
       );
     }
-    const output = await this.inner.completeChat(messages, trial);
+    const output = await this.inner.completeChat(messages, trial, context);
     const recordedMessages = cloneMessages(messages);
-    this.record(chatKey(recordedMessages, trial), {
+    this.record(chatKey(recordedMessages, trial, context), {
       kind: "chat",
       messages: recordedMessages,
       trial,
+      ...(context !== undefined ? { context } : {}),
       output,
     });
     return output;
@@ -134,7 +143,7 @@ export async function saveRecordings(
   }
 
   const manifest: ReplayManifest = {
-    version: 2,
+    version: 3,
     createdAt: new Date().toISOString(),
     skew: version,
     stacks: runners.map((runner) => runner.name),
@@ -175,11 +184,15 @@ export class ReplayRunner implements AgentRunner {
   async completeChat(
     messages: readonly ChatMessage[],
     trial = 0,
+    context?: string,
   ): Promise<ChatResponse> {
-    const output = this.chats.get(chatKey(messages, trial));
+    const output =
+      (context !== undefined
+        ? this.chats.get(chatKey(messages, trial, context))
+        : undefined) ?? this.chats.get(chatKey(messages, trial));
     if (output === undefined) {
       throw new RunnerError(
-        `${this.name}: no recorded chat output for trial ${trial} (${messages.length} messages)`,
+        `${this.name}: no recorded chat output for trial ${trial} (${messages.length} messages${context !== undefined ? `, context ${context}` : ""})`,
         { retryable: false },
       );
     }
@@ -252,10 +265,15 @@ function parseEntry(
   ) {
     const messages = record.messages;
     const output = record.output;
-    if (!isChatMessages(messages) || !isChatResponse(output)) {
+    const context = record.context;
+    if (
+      !isChatMessages(messages) ||
+      !isChatResponse(output) ||
+      (context !== undefined && typeof context !== "string")
+    ) {
       throw new Error(`${path}:${line}: invalid chat replay entry`);
     }
-    chats.set(chatKey(messages, trial as number), output);
+    chats.set(chatKey(messages, trial as number, context), output);
     return;
   }
 

@@ -117,4 +117,5 @@ npm run replay:agent
 
 For retry and failure-recovery trajectories, see the
 [agent failure run](../agent-failures/README.md), which adds sequenced tool
-results and injected errors.
+results and injected errors. For scripted follow-up user turns after a final
+answer, see the [conversation run](../conversations/README.md).

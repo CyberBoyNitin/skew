@@ -106,6 +106,12 @@ export class Harness {
     if (maxTurns === 1 && Object.keys(toolSequences).length > 0) {
       throw new Error("toolSequences requires maxTurns > 1");
     }
+    if (
+      maxTurns === 1 &&
+      options.probes.some((probe) => probe.followUps.length > 0)
+    ) {
+      throw new Error("followUps requires maxTurns > 1");
+    }
     for (const name of Object.keys(toolSequences)) {
       if (Object.prototype.hasOwnProperty.call(toolResults, name)) {
         throw new Error(
@@ -153,7 +159,16 @@ export class Harness {
 
       await Promise.all(
         this.stacks.map(async (stack) => {
-          perStack.set(stack.name, await this.trialsFor(stack, prompt, this.trials));
+          perStack.set(
+            stack.name,
+            await this.trialsFor(
+              stack,
+              prompt,
+              this.trials,
+              probe.followUps,
+              probe.id,
+            ),
+          );
         }),
       );
 
@@ -200,6 +215,9 @@ export class Harness {
           let finding: Finding = {
             probeId: probe.id,
             tags: [...probe.tags],
+            ...(probe.followUps.length > 0
+              ? { followUps: [...probe.followUps] }
+              : {}),
             stackA: a.name,
             stackB: b.name,
             verdict,
@@ -251,6 +269,13 @@ export class Harness {
             total + sequence.filter((step) => "error" in step).length,
           0,
         ),
+        followUpProbes: this.probes.filter(
+          (probe) => probe.followUps.length > 0,
+        ).length,
+        followUps: this.probes.reduce(
+          (total, probe) => total + probe.followUps.length,
+          0,
+        ),
         stacks: this.stacks.map((stack) => stack.name),
         version: this.version,
         origin: this.origin,
@@ -266,22 +291,26 @@ export class Harness {
     stack: Runner,
     prompt: string,
     trials: number,
+    followUps: readonly string[],
+    probeId: string,
   ): Promise<string[]> {
     const key = JSON.stringify([
       stack.name,
+      probeId,
       prompt,
       trials,
       this.maxTurns,
       this.agentText,
       this.toolResults,
       this.toolSequences,
+      followUps,
     ]);
     const cached = this.cache.get(key);
     if (cached) return cached;
 
     const outputs = await Promise.all(
       Array.from({ length: trials }, (_, trial) =>
-        this.trialOutput(stack, prompt, trial),
+        this.trialOutput(stack, prompt, trial, followUps, probeId),
       ),
     );
     const successful = outputs.filter(
@@ -296,10 +325,12 @@ export class Harness {
     stack: Runner,
     prompt: string,
     trial: number,
+    followUps: readonly string[],
+    probeId: string,
   ): Promise<string | null> {
     try {
       return this.maxTurns > 1
-        ? await this.agentOutput(stack, prompt, trial)
+        ? await this.agentOutput(stack, prompt, trial, followUps, probeId)
         : await this.completeWithRetry(stack, prompt, trial);
     } catch (error) {
       if (this.errorSamples.length < 5) {
@@ -322,6 +353,8 @@ export class Harness {
     stack: Runner,
     prompt: string,
     trial: number,
+    followUps: readonly string[],
+    probeId: string,
   ): Promise<string> {
     if (!isAgentRunner(stack)) {
       this.stats.errors += 1;
@@ -337,9 +370,10 @@ export class Harness {
         maxTurns: this.maxTurns,
         toolResults: this.toolResults,
         toolSequences: this.toolSequences,
+        followUps,
         agentText: this.agentText,
       },
-      (messages) => this.chatWithRetry(stack, messages, trial),
+      (messages) => this.chatWithRetry(stack, messages, trial, probeId),
     );
   }
 
@@ -347,9 +381,10 @@ export class Harness {
     stack: AgentRunner,
     messages: Parameters<AgentRunner["completeChat"]>[0],
     trial: number,
+    probeId: string,
   ): Promise<Awaited<ReturnType<AgentRunner["completeChat"]>>> {
     return this.callWithRetry(stack, () =>
-      stack.completeChat(messages, trial),
+      stack.completeChat(messages, trial, probeId),
     );
   }
 
@@ -420,8 +455,8 @@ export class Harness {
     const test = async (candidate: number[]): Promise<boolean> => {
       const reduced = probeWithSegments(probe, candidate);
       const [outputsA, outputsB] = await Promise.all([
-        this.trialsFor(a, promptOf(reduced), 1),
-        this.trialsFor(b, promptOf(reduced), 1),
+        this.trialsFor(a, promptOf(reduced), 1, reduced.followUps, probe.id),
+        this.trialsFor(b, promptOf(reduced), 1, reduced.followUps, probe.id),
       ]);
       return reproduces(analyze(outputsA, outputsB, 1));
     };
@@ -442,8 +477,20 @@ export class Harness {
     if (kept.length < indices.length) {
       const reduced = probeWithSegments(probe, kept);
       const [outputsA, outputsB] = await Promise.all([
-        this.trialsFor(a, promptOf(reduced), this.trials),
-        this.trialsFor(b, promptOf(reduced), this.trials),
+        this.trialsFor(
+          a,
+          promptOf(reduced),
+          this.trials,
+          reduced.followUps,
+          probe.id,
+        ),
+        this.trialsFor(
+          b,
+          promptOf(reduced),
+          this.trials,
+          reduced.followUps,
+          probe.id,
+        ),
       ]);
       const check = analyze(outputsA, outputsB, this.minStability);
 
