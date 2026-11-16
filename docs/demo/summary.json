@@ -1,24 +1,26 @@
 {
   "meta": {
-    "startedAt": "2026-11-15T06:10:56.269Z",
-    "durationS": 0.22,
+    "startedAt": "2026-11-16T05:58:13.596Z",
+    "durationS": 0.19,
     "seed": 7,
     "probeCount": 8,
     "trials": 3,
     "maxTurns": 1,
     "sequencedTools": 0,
     "injectedErrors": 0,
+    "followUpProbes": 0,
+    "followUps": 0,
     "stacks": [
       "alpha",
       "beta",
       "gamma",
       "delta"
     ],
-    "version": "0.6.0",
+    "version": "0.7.0",
     "origin": "demo"
   },
   "stats": {
-    "calls": 375,
+    "calls": 384,
     "errors": 0,
     "retries": 0,
     "minimizeChecks": 151

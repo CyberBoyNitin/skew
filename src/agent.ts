@@ -10,10 +10,13 @@ export interface AgentOptions {
   maxTurns: number;
   toolResults: Record<string, unknown>;
   toolSequences?: Record<string, readonly ToolSequenceStep[]>;
+  followUps?: readonly string[];
   agentText: AgentText;
 }
 
 export interface AgentTraceTurn {
+  /** Present when this model call begins a scripted follow-up user turn. */
+  user?: string;
   assistant: {
     text?: string;
     tool_calls?: Array<{ name: string; arguments: unknown }>;
@@ -41,6 +44,12 @@ interface ResolvedToolResult {
  * without a live backend. The comparison sees assistant text, the sequence of
  * tool calls and results, and the final turn shape; provider ids and envelope
  * differences stay out of the trace.
+ *
+ * Follow-up user turns are scripted. After a final assistant answer, the next
+ * follow-up is appended to the same chat history and the loop continues. The
+ * call budget covers the whole conversation, and tool call counts persist
+ * across follow-ups, so a retry in a later user turn sees the next sequence
+ * step.
  */
 export async function runAgent(
   prompt: string,
@@ -48,8 +57,11 @@ export async function runAgent(
   call: (messages: readonly ChatMessage[]) => Promise<ChatResponse>,
 ): Promise<string> {
   const messages: ChatMessage[] = [{ role: "user", content: prompt }];
+  const followUps = options.followUps ?? [];
   const turns: AgentTraceTurn[] = [];
   const callCounts = new Map<string, number>();
+  let followUpIndex = 0;
+  let pendingUser: string | undefined;
   let finish: AgentTrace["finish"] = "max_turns";
 
   for (let turn = 0; turn < options.maxTurns; turn += 1) {
@@ -59,7 +71,11 @@ export async function runAgent(
       resolveToolResult(toolCall, options, callCounts),
     );
 
-    const traceTurn: AgentTraceTurn = { assistant };
+    const traceTurn: AgentTraceTurn = {
+      ...(pendingUser !== undefined ? { user: pendingUser } : {}),
+      assistant,
+    };
+    pendingUser = undefined;
     if (resolved.length > 0) {
       traceTurn.results = resolved.map((item) => ({
         name: item.name,
@@ -70,6 +86,18 @@ export async function runAgent(
     turns.push(traceTurn);
 
     if (response.toolCalls.length === 0) {
+      const followUp = followUps[followUpIndex];
+      if (followUp !== undefined) {
+        followUpIndex += 1;
+        messages.push({
+          role: "assistant",
+          content: response.text,
+          toolCalls: [],
+        });
+        pendingUser = followUp;
+        messages.push({ role: "user", content: followUp });
+        continue;
+      }
       finish = "final";
       break;
     }

@@ -17,6 +17,32 @@ test("custom probes protect the first segment by default", () => {
   assert.deepEqual(probe.segments, ["line one", "line two"]);
   assert.deepEqual([...probe.protected], [0]);
   assert.deepEqual(probe.tags, []);
+  assert.deepEqual(probe.followUps, []);
+});
+
+test("follow-up user turns are parsed and preserved", () => {
+  const spec = normalizeProbeSpec({
+    id: "follow-up",
+    prompt: "Look up Ada.",
+    followUps: ["Now look up Grace.", "Compare both."],
+  });
+  assert.deepEqual(spec.followUps, ["Now look up Grace.", "Compare both."]);
+
+  const probe = probeFromSpec(spec);
+  assert.deepEqual(probe.followUps, [
+    "Now look up Grace.",
+    "Compare both.",
+  ]);
+
+  assert.throws(
+    () =>
+      normalizeProbeSpec({
+        id: "bad-follow-up",
+        prompt: "Look up Ada.",
+        followUps: [""],
+      }),
+    /followUps\[0\] must be a non-empty string/,
+  );
 });
 
 test("segments and protected indices are kept verbatim", () => {

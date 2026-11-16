@@ -3,6 +3,8 @@ export interface Probe {
   segments: string[];
   protected: Set<number>;
   tags: string[];
+  /** User messages sent after each final assistant answer. */
+  followUps: string[];
 }
 
 export function promptOf(probe: Probe): string {

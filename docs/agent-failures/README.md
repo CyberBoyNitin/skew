@@ -130,3 +130,7 @@ trajectories and minimization checks.
 - The format-only findings are real structural differences, but they are
   argument formatting rather than recovery behavior. They are reported at
   severity 1 and separated from semantic findings.
+
+For scripted follow-up user turns after final answers, see the
+[conversation run](../conversations/README.md), which adds conversational
+corrections, rechecks, and retry requests.

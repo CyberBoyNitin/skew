@@ -1,0 +1,91 @@
+[
+  {
+    "id": "followup-order-correction",
+    "segments": [
+      "You are a customer operations agent with access to tools.",
+      "Use tools for every order fact; never invent order data.",
+      "Order id: 8812.",
+      "TASK: Fetch order 8812 and report its status.",
+      "Keep the answer short."
+    ],
+    "protected": [0, 3],
+    "tags": ["conversation", "correction", "order"],
+    "followUps": [
+      "Correction: the order id is 5521, not 8812. Fetch order 5521 and report its status."
+    ]
+  },
+  {
+    "id": "followup-customer-correction",
+    "segments": [
+      "You are a support agent with access to tools.",
+      "Use tools for every customer fact; never invent customer data.",
+      "Customer email: ada@example.com.",
+      "TASK: Look up Ada and report the customer plan.",
+      "Keep the answer short."
+    ],
+    "protected": [0, 3],
+    "tags": ["conversation", "correction", "customer"],
+    "followUps": [
+      "Correction: use grace@example.com instead. Look up Grace and report the plan."
+    ]
+  },
+  {
+    "id": "followup-multi-correction",
+    "segments": [
+      "You are a customer operations agent with access to tools.",
+      "Use tools for every customer and order fact; never invent identifiers or statuses.",
+      "Customer email: ada@example.com. Order id: 8812.",
+      "TASK: Look up the customer and fetch the order. Report both the plan and the order status."
+    ],
+    "protected": [0, 3],
+    "tags": ["conversation", "correction", "chain"],
+    "followUps": [
+      "Correction: both identifiers were wrong. Use grace@example.com and order 5521 instead. Look up the customer and fetch the order again."
+    ]
+  },
+  {
+    "id": "followup-refund-retry",
+    "segments": [
+      "You are a refund agent with access to tools.",
+      "Never claim a refund succeeded unless a tool result says so.",
+      "Customer id: cus_1042. Order id: 8812. Amount: 49.99 USD. Reason: damaged in transit.",
+      "TASK: Attempt exactly one refund call and report the result.",
+      "If the processor declines permanently, do not retry. Report the exact error code."
+    ],
+    "protected": [0, 3, 4],
+    "tags": ["conversation", "retry", "refund"],
+    "followUps": [
+      "I understand it was declined, but please attempt the refund one more time now."
+    ]
+  },
+  {
+    "id": "followup-two-orders",
+    "segments": [
+      "You are a customer operations agent with access to tools.",
+      "Use tools for every order fact; never invent order data.",
+      "Order id: 8812.",
+      "TASK: Fetch order 8812 and report its status.",
+      "Keep the answer short."
+    ],
+    "protected": [0, 3],
+    "tags": ["conversation", "follow-up", "order"],
+    "followUps": [
+      "Now also fetch order 5521 and report its status."
+    ]
+  },
+  {
+    "id": "followup-status-recheck",
+    "segments": [
+      "You are a refund status agent with access to tools.",
+      "Use the status tool for every refund fact; never invent a status.",
+      "Refund id: re_7781.",
+      "TASK: Check the refund status and report it.",
+      "Keep the answer short."
+    ],
+    "protected": [0, 3],
+    "tags": ["conversation", "recheck", "status"],
+    "followUps": [
+      "The status may have changed. Check re_7781 again and report the latest status."
+    ]
+  }
+]

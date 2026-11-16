@@ -8,6 +8,7 @@ export interface ProbeSpec {
   segments?: string[];
   protected?: number[];
   tags?: string[];
+  followUps?: string[];
 }
 
 export interface LoadProbesOptions {
@@ -84,6 +85,7 @@ export function probeFromSpec(spec: ProbeSpec): Probe {
     segments: [...segments],
     protected: new Set(protectedIndices),
     tags: spec.tags ? [...spec.tags] : [],
+    followUps: spec.followUps ? [...spec.followUps] : [],
   };
 }
 
@@ -141,6 +143,10 @@ export function normalizeProbeSpec(
   }
 
   const tags = optionalStringArray(record.tags, `${label}.tags`);
+  const followUps = optionalStringArray(
+    record.followUps,
+    `${label}.followUps`,
+  );
 
   return {
     id,
@@ -148,6 +154,7 @@ export function normalizeProbeSpec(
     ...(segmentList ? { segments: segmentList } : {}),
     ...(protectedIndices ? { protected: protectedIndices } : {}),
     ...(tags ? { tags } : {}),
+    ...(followUps ? { followUps } : {}),
   };
 }
 
