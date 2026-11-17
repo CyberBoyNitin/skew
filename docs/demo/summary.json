@@ -1,7 +1,7 @@
 {
   "meta": {
-    "startedAt": "2026-11-16T05:58:13.596Z",
-    "durationS": 0.19,
+    "startedAt": "2026-11-17T05:39:49.337Z",
+    "durationS": 0.41,
     "seed": 7,
     "probeCount": 8,
     "trials": 3,
@@ -10,13 +10,15 @@
     "injectedErrors": 0,
     "followUpProbes": 0,
     "followUps": 0,
+    "toolOverrideProbes": 0,
+    "toolOverrides": 0,
     "stacks": [
       "alpha",
       "beta",
       "gamma",
       "delta"
     ],
-    "version": "0.7.0",
+    "version": "0.8.0",
     "origin": "demo"
   },
   "stats": {

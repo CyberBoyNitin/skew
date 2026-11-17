@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { normalizeProbeSpec } from "./probes.ts";
 import type { ProbeSpec } from "./probes.ts";
 import { AnthropicRunner, HttpRunner } from "./runners.ts";
+import { normalizeToolStep } from "./tool-step.ts";
 import type {
   AgentText,
   HttpRunnerOptions,
@@ -379,23 +380,6 @@ function normalizeToolSequences(
   }
 
   return sequences;
-}
-
-function normalizeToolStep(
-  value: unknown,
-  label: string,
-): ToolSequenceStep {
-  const record = asRecord(value, label);
-  const hasResult = Object.prototype.hasOwnProperty.call(record, "result");
-  const hasError = Object.prototype.hasOwnProperty.call(record, "error");
-  if (hasResult === hasError) {
-    throw new Error(
-      `${label} must contain exactly one of "result" or "error"`,
-    );
-  }
-  return hasResult
-    ? { result: record.result }
-    : { error: record.error };
 }
 
 function validateToolConfiguration(

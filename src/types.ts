@@ -136,6 +136,8 @@ export interface RunMeta {
   injectedErrors?: number;
   followUpProbes?: number;
   followUps?: number;
+  toolOverrideProbes?: number;
+  toolOverrides?: number;
   stacks: string[];
   version: string;
   origin: string;

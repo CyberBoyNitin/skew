@@ -36,6 +36,7 @@ export interface HarnessOptions {
   maxTurns?: number;
   toolResults?: Record<string, unknown>;
   toolSequences?: Record<string, ToolSequenceStep[]>;
+  toolNames?: string[];
   agentText?: AgentText;
 }
 
@@ -119,6 +120,48 @@ export class Harness {
         );
       }
     }
+    if (maxTurns === 1) {
+      const sequencedProbe = options.probes.find(
+        (probe) => Object.keys(probe.toolSequences).length > 0,
+      );
+      if (sequencedProbe) {
+        throw new Error(
+          `probe "${sequencedProbe.id}" toolSequences requires maxTurns > 1`,
+        );
+      }
+    }
+    if (options.toolNames) {
+      const knownTools = new Set(options.toolNames);
+      for (const name of [
+        ...Object.keys(toolResults),
+        ...Object.keys(toolSequences),
+      ]) {
+        if (!knownTools.has(name)) {
+          throw new Error(`unknown tool "${name}" in tool configuration`);
+        }
+      }
+      for (const probe of options.probes) {
+        for (const name of [
+          ...Object.keys(probe.toolResults),
+          ...Object.keys(probe.toolSequences),
+        ]) {
+          if (!knownTools.has(name)) {
+            throw new Error(
+              `probe "${probe.id}" overrides unknown tool "${name}"`,
+            );
+          }
+        }
+      }
+    }
+    for (const probe of options.probes) {
+      for (const name of Object.keys(probe.toolSequences)) {
+        if (Object.prototype.hasOwnProperty.call(probe.toolResults, name)) {
+          throw new Error(
+            `probe "${probe.id}" has both toolResults and toolSequences for tool "${name}"`,
+          );
+        }
+      }
+    }
     const agentText = options.agentText ?? "final";
     if (agentText !== "none" && agentText !== "final" && agentText !== "all") {
       throw new Error('agentText must be "none", "final", or "all"');
@@ -163,10 +206,9 @@ export class Harness {
             stack.name,
             await this.trialsFor(
               stack,
+              probe,
               prompt,
               this.trials,
-              probe.followUps,
-              probe.id,
             ),
           );
         }),
@@ -263,17 +305,49 @@ export class Harness {
         probeCount: this.probes.length,
         trials: this.trials,
         maxTurns: this.maxTurns,
-        sequencedTools: Object.keys(this.toolSequences).length,
-        injectedErrors: Object.values(this.toolSequences).reduce(
-          (total, sequence) =>
-            total + sequence.filter((step) => "error" in step).length,
-          0,
-        ),
+        sequencedTools: new Set([
+          ...Object.keys(this.toolSequences),
+          ...this.probes.flatMap((probe) =>
+            Object.keys(probe.toolSequences),
+          ),
+        ]).size,
+        injectedErrors:
+          Object.values(this.toolSequences).reduce(
+            (total, sequence) =>
+              total + sequence.filter((step) => "error" in step).length,
+            0,
+          ) +
+          this.probes.reduce(
+            (total, probe) =>
+              total +
+              Object.values(probe.toolSequences).reduce(
+                (subtotal, sequence) =>
+                  subtotal +
+                  sequence.filter((step) => "error" in step).length,
+                0,
+              ),
+            0,
+          ),
         followUpProbes: this.probes.filter(
           (probe) => probe.followUps.length > 0,
         ).length,
         followUps: this.probes.reduce(
           (total, probe) => total + probe.followUps.length,
+          0,
+        ),
+        toolOverrideProbes: this.probes.filter(
+          (probe) =>
+            Object.keys(probe.toolResults).length +
+              Object.keys(probe.toolSequences).length >
+            0,
+        ).length,
+        toolOverrides: this.probes.reduce(
+          (total, probe) =>
+            total +
+            new Set([
+              ...Object.keys(probe.toolResults),
+              ...Object.keys(probe.toolSequences),
+            ]).size,
           0,
         ),
         stacks: this.stacks.map((stack) => stack.name),
@@ -289,28 +363,32 @@ export class Harness {
 
   private async trialsFor(
     stack: Runner,
+    probe: Probe,
     prompt: string,
     trials: number,
-    followUps: readonly string[],
-    probeId: string,
   ): Promise<string[]> {
+    const environment = resolveProbeToolEnvironment(
+      probe,
+      this.toolResults,
+      this.toolSequences,
+    );
     const key = JSON.stringify([
       stack.name,
-      probeId,
+      probe.id,
       prompt,
       trials,
       this.maxTurns,
       this.agentText,
-      this.toolResults,
-      this.toolSequences,
-      followUps,
+      environment.toolResults,
+      environment.toolSequences,
+      probe.followUps,
     ]);
     const cached = this.cache.get(key);
     if (cached) return cached;
 
     const outputs = await Promise.all(
       Array.from({ length: trials }, (_, trial) =>
-        this.trialOutput(stack, prompt, trial, followUps, probeId),
+        this.trialOutput(stack, probe, prompt, trial),
       ),
     );
     const successful = outputs.filter(
@@ -323,14 +401,13 @@ export class Harness {
 
   private async trialOutput(
     stack: Runner,
+    probe: Probe,
     prompt: string,
     trial: number,
-    followUps: readonly string[],
-    probeId: string,
   ): Promise<string | null> {
     try {
       return this.maxTurns > 1
-        ? await this.agentOutput(stack, prompt, trial, followUps, probeId)
+        ? await this.agentOutput(stack, probe, prompt, trial)
         : await this.completeWithRetry(stack, prompt, trial);
     } catch (error) {
       if (this.errorSamples.length < 5) {
@@ -351,10 +428,9 @@ export class Harness {
 
   private async agentOutput(
     stack: Runner,
+    probe: Probe,
     prompt: string,
     trial: number,
-    followUps: readonly string[],
-    probeId: string,
   ): Promise<string> {
     if (!isAgentRunner(stack)) {
       this.stats.errors += 1;
@@ -364,16 +440,21 @@ export class Harness {
       );
     }
 
+    const environment = resolveProbeToolEnvironment(
+      probe,
+      this.toolResults,
+      this.toolSequences,
+    );
     return runAgent(
       prompt,
       {
         maxTurns: this.maxTurns,
-        toolResults: this.toolResults,
-        toolSequences: this.toolSequences,
-        followUps,
+        toolResults: environment.toolResults,
+        toolSequences: environment.toolSequences,
+        followUps: probe.followUps,
         agentText: this.agentText,
       },
-      (messages) => this.chatWithRetry(stack, messages, trial, probeId),
+      (messages) => this.chatWithRetry(stack, messages, trial, probe.id),
     );
   }
 
@@ -455,8 +536,8 @@ export class Harness {
     const test = async (candidate: number[]): Promise<boolean> => {
       const reduced = probeWithSegments(probe, candidate);
       const [outputsA, outputsB] = await Promise.all([
-        this.trialsFor(a, promptOf(reduced), 1, reduced.followUps, probe.id),
-        this.trialsFor(b, promptOf(reduced), 1, reduced.followUps, probe.id),
+        this.trialsFor(a, reduced, promptOf(reduced), 1),
+        this.trialsFor(b, reduced, promptOf(reduced), 1),
       ]);
       return reproduces(analyze(outputsA, outputsB, 1));
     };
@@ -477,20 +558,8 @@ export class Harness {
     if (kept.length < indices.length) {
       const reduced = probeWithSegments(probe, kept);
       const [outputsA, outputsB] = await Promise.all([
-        this.trialsFor(
-          a,
-          promptOf(reduced),
-          this.trials,
-          reduced.followUps,
-          probe.id,
-        ),
-        this.trialsFor(
-          b,
-          promptOf(reduced),
-          this.trials,
-          reduced.followUps,
-          probe.id,
-        ),
+        this.trialsFor(a, reduced, promptOf(reduced), this.trials),
+        this.trialsFor(b, reduced, promptOf(reduced), this.trials),
       ]);
       const check = analyze(outputsA, outputsB, this.minStability);
 
@@ -524,6 +593,29 @@ export class Harness {
 function isRetryable(error: unknown): boolean {
   if (error instanceof RunnerError) return error.retryable;
   return true;
+}
+
+function resolveProbeToolEnvironment(
+  probe: Probe,
+  globalResults: Record<string, unknown>,
+  globalSequences: Record<string, ToolSequenceStep[]>,
+): {
+  toolResults: Record<string, unknown>;
+  toolSequences: Record<string, ToolSequenceStep[]>;
+} {
+  const toolResults = { ...globalResults };
+  const toolSequences = { ...globalSequences };
+
+  for (const [name, result] of Object.entries(probe.toolResults)) {
+    delete toolSequences[name];
+    toolResults[name] = result;
+  }
+  for (const [name, sequence] of Object.entries(probe.toolSequences)) {
+    delete toolResults[name];
+    toolSequences[name] = sequence;
+  }
+
+  return { toolResults, toolSequences };
 }
 
 function sleep(ms: number): Promise<void> {

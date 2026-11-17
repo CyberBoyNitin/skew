@@ -177,8 +177,11 @@ export function printSummary(run: Run, outDir: string): void {
   const followUps = run.meta.followUps ?? 0;
   const conversations =
     followUps > 0 ? `   follow-ups   ${followUps}` : "";
+  const overrides = run.meta.toolOverrides ?? 0;
+  const probeOverrides =
+    overrides > 0 ? `   overrides   ${overrides}` : "";
   console.log(
-    `probes   ${run.meta.probeCount}   trials   ${run.meta.trials}${turns}${sequences}${conversations}   calls   ${run.stats.calls}   errors   ${run.stats.errors}${retries}   checks   ${run.stats.minimizeChecks}`,
+    `probes   ${run.meta.probeCount}   trials   ${run.meta.trials}${turns}${sequences}${conversations}${probeOverrides}   calls   ${run.stats.calls}   errors   ${run.stats.errors}${retries}   checks   ${run.stats.minimizeChecks}`,
   );
   console.log(
     `found    ${counts.total} divergences (${counts.safety} safety, ${counts.semantic} semantic, ${counts["format-only"]} format-only) · ${run.unstable.length} unstable pairs`,
@@ -246,6 +249,12 @@ export function renderHtml(run: Run): string {
     followUpCount > 0
       ? `\n        <span class="badge demo">${followUpCount} follow-up turn${followUpCount === 1 ? "" : "s"}</span>`
       : "";
+  const overrideCount = run.meta.toolOverrides ?? 0;
+  const overrideProbeCount = run.meta.toolOverrideProbes ?? 0;
+  const overrideBadge =
+    overrideCount > 0
+      ? `\n        <span class="badge demo">${overrideCount} probe tool override${overrideCount === 1 ? "" : "s"}${overrideProbeCount > 0 ? ` · ${overrideProbeCount} probe${overrideProbeCount === 1 ? "" : "s"}` : ""}</span>`
+      : "";
   const retryMeta =
     run.stats.retries > 0 ? ` · <b>retries</b> ${run.stats.retries}` : "";
 
@@ -304,7 +313,7 @@ export function renderHtml(run: Run): string {
         ${originBadge}
         <span class="badge">seed ${run.meta.seed}</span>
         <span class="badge">${run.meta.probeCount} probes</span>
-        <span class="badge">${run.meta.trials} trials</span>${turnBadge}${sequenceBadge}${followUpBadge}
+        <span class="badge">${run.meta.trials} trials</span>${turnBadge}${sequenceBadge}${followUpBadge}${overrideBadge}
         <span class="badge">${run.meta.durationS.toFixed(2)}s</span>
       </div>
     </div>
@@ -352,6 +361,7 @@ export function renderHtml(run: Run): string {
         <li>JSON is compared structurally, with unsafe integers preserved losslessly from the source text. Prose is compared after whitespace normalization.</li>
         <li>Native tool calls are normalized to <code>{name, arguments}</code>. Provider ids, envelopes, and serialization differences are ignored; tool choice and argument values are compared.</li>
         <li>In agent mode, tool calls are answered from static <code>toolResults</code> values or ordered <code>toolSequences</code>. skew never executes a tool or performs a real side effect. Each sequence step is a result or an injected error; after the last step, the last step repeats. The trace compares call order, arguments, returned results, injected errors, and where the loop stopped; assistant text is included according to <code>agentText</code>. The default <code>final</code> omits pre-tool narration because it is high-variance. Use <code>all</code> to compare every assistant message, or <code>none</code> to compare only calls, results, and where the loop stopped. Follow-up turns add the next scripted user message after a final answer and count against the same <code>maxTurns</code> budget.</li>
+        <li>Probes can override global <code>toolResults</code> and <code>toolSequences</code> tool by tool. An override replaces the global entry for that tool, so one suite can exercise different retry, failure, and recovery paths without shared sequence state. A probe cannot define both a static result and a sequence for the same tool.</li>
         <li>Stacks speak either OpenAI chat-completions or the Anthropic Messages API. Provider-specific sampling controls are not compared.</li>
       </ul>
     </div>

@@ -105,6 +105,8 @@ export function generateProbes(options: GenerateOptions = {}): Probe[] {
         ? [`edge:${edge.name}`, "sensitive"]
         : [`edge:${edge.name}`],
       followUps: [],
+      toolResults: {},
+      toolSequences: {},
     });
   }
 

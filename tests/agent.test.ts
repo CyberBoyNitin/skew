@@ -130,6 +130,49 @@ class ContextAgent implements AgentRunner {
   }
 }
 
+/** Calls two tools in one turn, then echoes the returned results. */
+class MultiToolAgent implements AgentRunner {
+  readonly name: string;
+
+  constructor(name: string) {
+    this.name = name;
+  }
+
+  async complete(): Promise<string> {
+    return this.name;
+  }
+
+  async completeChat(
+    messages: readonly ChatMessage[],
+  ): Promise<ChatResponse> {
+    const assistantTurns = messages.filter(
+      (message) => message.role === "assistant",
+    ).length;
+    if (assistantTurns === 0) {
+      return {
+        text: null,
+        toolCalls: [
+          {
+            id: `call_${this.name}_ping`,
+            name: "ping",
+            arguments: {},
+          },
+          {
+            id: `call_${this.name}_pong`,
+            name: "pong",
+            arguments: {},
+          },
+        ],
+      };
+    }
+    const results = messages
+      .filter((message) => message.role === "tool")
+      .map((message) => message.content)
+      .join(", ");
+    return { text: `${this.name}: ${results}`, toolCalls: [] };
+  }
+}
+
 test("runAgent feeds static tool results back and stops on a final answer", async () => {
   const requests: ChatMessage[][] = [];
   const trace = await runAgent(
@@ -728,6 +771,139 @@ test("a follow-up conversation records and replays every chat turn", async () =>
     first.findings.map((finding) => ({
       probeId: finding.probeId,
       followUps: finding.followUps,
+      outputA: finding.outputA,
+      outputB: finding.outputB,
+      verdict: finding.verdict,
+    })),
+  );
+  assert.equal(second.stats.calls, first.stats.calls);
+  assert.equal(second.stats.errors, 0);
+});
+
+test("probe tool overrides isolate scenarios and merge global defaults", async () => {
+  const probes = [
+    probeFromSpec({
+      id: "env-static",
+      prompt: "Call both services.",
+      toolResults: { ping: { v: "a-ping" } },
+    }),
+    probeFromSpec({
+      id: "env-sequence",
+      prompt: "Call both services.",
+      toolSequences: { ping: [{ result: { v: "b-ping" } }] },
+    }),
+  ];
+  const run = await new Harness({
+    probes,
+    stacks: [new MultiToolAgent("a"), new MultiToolAgent("b")],
+    trials: 3,
+    minimize: false,
+    maxTurns: 2,
+    toolResults: {
+      ping: { v: "global-ping" },
+      pong: { v: "global-pong" },
+    },
+    toolNames: ["ping", "pong"],
+    agentText: "final",
+    retries: 0,
+    concurrency: 4,
+    origin: "test",
+  }).run();
+
+  assert.equal(run.findings.length, 2);
+  assert.equal(run.meta.toolOverrideProbes, 2);
+  assert.equal(run.meta.toolOverrides, 2);
+
+  const staticFinding = run.findings.find(
+    (finding) => finding.probeId === "env-static",
+  )!;
+  assert.match(staticFinding.outputA, /a-ping/);
+  assert.match(staticFinding.outputA, /global-pong/);
+  assert.doesNotMatch(staticFinding.outputA, /global-ping/);
+  assert.match(staticFinding.outputB, /a-ping/);
+
+  const sequenceFinding = run.findings.find(
+    (finding) => finding.probeId === "env-sequence",
+  )!;
+  assert.match(sequenceFinding.outputA, /b-ping/);
+  assert.match(sequenceFinding.outputA, /global-pong/);
+  assert.doesNotMatch(sequenceFinding.outputA, /global-ping/);
+
+  const html = renderHtml(run);
+  assert.match(html, /2 probe tool overrides/);
+});
+
+test("probe tool overrides are validated against configured tools", () => {
+  assert.throws(
+    () =>
+      new Harness({
+        probes: [
+          probeFromSpec({
+            id: "typo",
+            prompt: "Check it.",
+            toolResults: { pign: { ok: true } },
+          }),
+        ],
+        stacks: [new MultiToolAgent("a"), new MultiToolAgent("b")],
+        maxTurns: 2,
+        toolResults: { ping: { ok: true } },
+        toolNames: ["ping"],
+      }),
+    /overrides unknown tool "pign"/,
+  );
+});
+
+test("probe tool overrides record and replay exactly", async () => {
+  const probes = [
+    probeFromSpec({
+      id: "env-replay-static",
+      prompt: "Call both services.",
+      toolResults: { ping: { v: "a-ping" } },
+    }),
+    probeFromSpec({
+      id: "env-replay-sequence",
+      prompt: "Call both services.",
+      toolSequences: { ping: [{ result: { v: "b-ping" } }] },
+    }),
+  ];
+  const recorders = [
+    new RecordingRunner(new MultiToolAgent("a")),
+    new RecordingRunner(new MultiToolAgent("b")),
+  ];
+  const options = {
+    probes,
+    trials: 2,
+    minimize: false,
+    maxTurns: 2,
+    toolResults: {
+      ping: { v: "global-ping" },
+      pong: { v: "global-pong" },
+    },
+    toolNames: ["ping", "pong"],
+    agentText: "final" as const,
+    retries: 0,
+    concurrency: 4,
+    origin: "test",
+  };
+  const first = await new Harness({ ...options, stacks: recorders }).run();
+
+  const dir = await mkdtemp(join(tmpdir(), "skew-env-replay-"));
+  await saveRecordings(dir, recorders, "0.8.0");
+  const replayers = await loadReplayRunners(
+    dir,
+    recorders.map((runner) => runner.name),
+  );
+  const second = await new Harness({ ...options, stacks: replayers }).run();
+
+  assert.deepEqual(
+    second.findings.map((finding) => ({
+      probeId: finding.probeId,
+      outputA: finding.outputA,
+      outputB: finding.outputB,
+      verdict: finding.verdict,
+    })),
+    first.findings.map((finding) => ({
+      probeId: finding.probeId,
       outputA: finding.outputA,
       outputB: finding.outputB,
       verdict: finding.verdict,

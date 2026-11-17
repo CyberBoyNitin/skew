@@ -1,0 +1,9 @@
+{
+  "version": 3,
+  "createdAt": "2026-11-17T05:24:49.931Z",
+  "skew": "0.8.0",
+  "stacks": [
+    "gpt-oss-120b",
+    "claude-sonnet-anthropic"
+  ]
+}

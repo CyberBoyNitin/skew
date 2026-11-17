@@ -1,3 +1,5 @@
+import type { ToolSequenceStep } from "./types.ts";
+
 export interface Probe {
   id: string;
   segments: string[];
@@ -5,6 +7,10 @@ export interface Probe {
   tags: string[];
   /** User messages sent after each final assistant answer. */
   followUps: string[];
+  /** Per-probe static tool overrides, merged over the global environment. */
+  toolResults: Record<string, unknown>;
+  /** Per-probe scripted tool overrides, merged over the global environment. */
+  toolSequences: Record<string, ToolSequenceStep[]>;
 }
 
 export function promptOf(probe: Probe): string {
