@@ -76,6 +76,7 @@ interface ExecuteOptions {
   maxTurns: number;
   toolResults: Record<string, unknown>;
   toolSequences: Record<string, ToolSequenceStep[]>;
+  toolNames?: string[];
   agentText: AgentText;
   origin: string;
   outDir: string;
@@ -224,6 +225,7 @@ async function main(argv: string[]): Promise<void> {
       maxTurns: config.maxTurns,
       toolResults: config.toolResults,
       toolSequences: config.toolSequences,
+      toolNames: config.tools.map((tool) => tool.name),
       agentText: config.agentText,
       origin: values.replay ? "replay" : "live",
       outDir,
@@ -259,6 +261,7 @@ async function execute(options: ExecuteOptions): Promise<number> {
     maxTurns: options.maxTurns,
     toolResults: options.toolResults,
     toolSequences: options.toolSequences,
+    ...(options.toolNames ? { toolNames: options.toolNames } : {}),
     agentText: options.agentText,
   });
 

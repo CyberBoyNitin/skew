@@ -1,7 +1,7 @@
 {
   "name": "skew-cli",
-  "version": "0.7.0",
-  "description": "Differential fuzzing for LLM stacks, including failure-aware tool workflows and scripted follow-up conversations: find, classify, and minimize behavioral divergences.",
+  "version": "0.8.0",
+  "description": "Differential fuzzing for LLM stacks, including failure-aware tool workflows, scripted follow-up conversations, and probe-scoped tool environments: find, classify, and minimize behavioral divergences.",
   "type": "module",
   "bin": {
     "skew": "./dist/cli.js"
@@ -32,12 +32,14 @@
     "real:agent": "node src/cli.ts run --config examples/agent.config.json",
     "real:agent-failures": "node src/cli.ts run --config examples/agent-failures.config.json",
     "real:conversation": "node src/cli.ts run --config examples/conversation.config.json",
+    "real:scenarios": "node src/cli.ts run --config examples/scenarios.config.json",
     "replay:real": "node src/cli.ts run --config examples/omniroute.config.json --replay docs/real/fixtures",
     "replay:tools": "node src/cli.ts run --config examples/tools.config.json --replay docs/tools/fixtures",
     "replay:anthropic": "node src/cli.ts run --config examples/omniroute-anthropic.config.json --replay docs/anthropic/fixtures",
     "replay:agent": "node src/cli.ts run --config examples/agent.config.json --replay docs/agents/fixtures",
     "replay:agent-failures": "node src/cli.ts run --config examples/agent-failures.config.json --replay docs/agent-failures/fixtures",
     "replay:conversation": "node src/cli.ts run --config examples/conversation.config.json --replay docs/conversations/fixtures",
+    "replay:scenarios": "node src/cli.ts run --config examples/scenarios.config.json --replay docs/scenarios/fixtures",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test \"tests/*.test.ts\"",
@@ -51,6 +53,7 @@
     "agent",
     "tool-calling",
     "conversation",
+    "scenario-isolation",
     "failure-injection",
     "ai-infrastructure",
     "typescript"

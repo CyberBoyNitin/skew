@@ -2,8 +2,9 @@
 
 **Differential fuzzing for LLM stacks.** Find where two models, providers, or
 quantizations behave differently on the same prompt or multi-turn tool workflow,
-including follow-up conversations, retries, and failure recovery, then minimize
-each disagreement to its smallest reproducible form.
+including follow-up conversations, retries, failure recovery, and probe-scoped
+tool environments, then minimize each disagreement to its smallest reproducible
+form.
 
 ![skew report](docs/demo/report.png)
 
@@ -137,6 +138,32 @@ npm run replay:conversation
 See [`docs/conversations/README.md`](docs/conversations/README.md) for the
 follow-up semantics, trace format, and caveats.
 
+### Probe-scoped tool environments
+
+[`docs/scenarios/`](docs/scenarios/) gives each probe its own tool overrides.
+The same `issue_refund` tool declines permanently in one probe, recovers from a
+retryable failure in another, and succeeds by default in the rest of the suite.
+Eight probes exercise refund decline and retry, order timeout and correction,
+customer correction, status rechecks, and a multi-tool chain:
+
+```text
+found    4 divergences (0 safety, 2 semantic, 2 format-only) · 0 unstable pairs
+calls    293   errors 0   checks 11   follow-ups 6   overrides 8
+```
+
+Two semantic findings are stable call-grouping differences: one stack serializes
+customer lookup, order fetch, and refund, while the other batches the lookup and
+order fetch. Two format-only findings are argument key-order differences on
+refund calls. Four probes agree and act as negative controls. Replay reproduces
+all 293 calls and a byte-identical `findings.jsonl` offline.
+
+```bash
+npm run replay:scenarios
+```
+
+See [`docs/scenarios/README.md`](docs/scenarios/README.md) for the override
+semantics, per-tool scripts, controls, and caveats.
+
 ### Native tool calls
 
 [`docs/tools/`](docs/tools/) compares two models on seven tool-use prompts with
@@ -228,7 +255,9 @@ The hard part is not generating prompts. It is making the result trustworthy:
 - **Bounded agent loops.** With `maxTurns` greater than one, tool calls are
   answered from static config results and the model continues until it stops or
   hits the budget. Scripted follow-up user turns can continue the same
-  conversation after a final answer. The compared trajectory includes call
+  conversation after a final answer. Probes can also override tool results and
+  sequences individually, so one suite can exercise different failure paths on
+  the same tool without shared state. The compared trajectory includes call
   order, arguments, the final answer, and where the loop ended. Pre-tool
   narration is excluded by default because it is high-variance.
 - **Two wire protocols.** OpenAI chat-completions and Anthropic Messages stacks
@@ -252,9 +281,9 @@ The hard part is not generating prompts. It is making the result trustworthy:
 2. **Sample** — every stack answers every probe N times at temperature 0, with
    retries and a concurrency cap. OpenAI chat-completions and Anthropic Messages
    stacks share the same harness. With `maxTurns` greater than one, each tool
-   call is answered from static results; scripted follow-ups continue the
-   conversation after final answers. The modal output or trajectory and its
-   stability are computed per stack.
+   call is answered from static or sequenced results, with optional per-probe
+   overrides; scripted follow-ups continue the conversation after final answers.
+   The modal output or trajectory and its stability are computed per stack.
 3. **Classify** — stacks that disagree with themselves are marked unstable.
    Stable disagreements are compared structurally and labeled. Agent traces are
    canonical JSON, so the same comparison and fingerprinting rules apply.
@@ -447,6 +476,48 @@ cannot be combined for the same tool. Explicit error steps are marked as tool
 errors for Anthropic; OpenAI receives the serialized error content. See
 [`examples/agent-failures.config.json`](examples/agent-failures.config.json).
 
+Probes can override a global tool entry for one scenario. The override replaces
+the global result or sequence for that tool only; every other tool keeps the
+global default. This lets one suite test decline, retry, timeout, and success
+paths on the same tool without shared sequence state:
+
+```json
+{
+  "id": "refund-retry",
+  "segments": [
+    "You are a refund agent with access to tools.",
+    "Customer id: cus_1042. Order id: 8812. Amount: 49.99 USD.",
+    "TASK: Attempt one refund, retrying once on a retryable error."
+  ],
+  "toolSequences": {
+    "issue_refund": [
+      {
+        "error": {
+          "code": "processor_unavailable",
+          "message": "refund processor temporarily unavailable",
+          "retryable": true
+        }
+      },
+      {
+        "result": {
+          "refund_id": "re_9001",
+          "status": "approved"
+        }
+      }
+    ]
+  }
+}
+```
+
+The top-level `toolResults`/`toolSequences` still need a deterministic default
+for every configured tool; a probe only replaces selected entries. A probe
+cannot define both `toolResults` and `toolSequences` for the same tool. Probe
+overrides work in inline `customProbes` and in probe files. See
+[`examples/scenarios.config.json`](examples/scenarios.config.json) and
+[`examples/scenarios.probes.json`](examples/scenarios.probes.json) for a suite
+where the same `issue_refund` tool declines in one probe, recovers in another,
+and succeeds in a third.
+
 `agentText` controls whether assistant prose is compared: `final` (default)
 compares only the final answer, `all` compares every assistant message, and
 `none` ignores all assistant text so only tool calls, results, and the
@@ -504,6 +575,9 @@ as JSONL:
   decide when recovery succeeds.
 - Add `followUps` to continue a probe after final answers. They are fixed
   scripted strings, not generated or paraphrased during minimization.
+- Add `toolResults` or `toolSequences` to a probe to override the global tool
+  environment for that scenario. The override replaces that tool's global entry;
+  other tools inherit the global defaults.
 
 ## Record and replay
 
@@ -522,9 +596,9 @@ with different follow-ups separate. `--replay` feeds those responses back
 through the same harness, so probes, classification, minimization, loop
 execution, and final verification all run deterministically. Recording keeps
 successful responses only; a replay miss is a hard, non-retryable error. Replay
-an agent run with the same tools, `toolResults`, `toolSequences`, `maxTurns`,
-`followUps`, and `agentText` config. Injected errors are part of the recorded
-history, so Anthropic `is_error` replies replay exactly.
+an agent run with the same tools, `toolResults`, `toolSequences`, per-probe tool
+overrides, `maxTurns`, `followUps`, and `agentText` config. Injected errors are
+part of the recorded history, so Anthropic `is_error` replies replay exactly.
 
 ## CLI
 
@@ -574,9 +648,10 @@ skew run --config <file> [options]  compare live OpenAI or Anthropic stacks
   calls are answered from static `toolResults` or ordered `toolSequences`, the
   resulting messages are translated back to each protocol, and the loop stops on
   a final answer or the budget. Scripted `followUps` append the next user turn
-  after a final answer while preserving the same history. Sequence steps can
-  inject errors, so retry and recovery behavior is comparable without a live
-  backend. `agentText` decides whether pre-tool narration is compared.
+  after a final answer while preserving the same history. Probe-level overrides
+  replace selected global tool entries per scenario. Sequence steps can inject
+  errors, so retry and recovery behavior is comparable without a live backend.
+  `agentText` decides whether pre-tool narration is compared.
 - **Output caps.** Every request sends `max_tokens` (default 512) so a chatty
   model cannot stall a run with unbounded generation.
 - **Record/replay.** Each successful completion is keyed by stack, probe

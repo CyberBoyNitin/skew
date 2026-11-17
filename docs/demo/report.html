@@ -138,14 +138,14 @@ footer{margin-top:56px;border-top:1px solid var(--line);padding-top:18px;display
         <span class="badge">seed 7</span>
         <span class="badge">8 probes</span>
         <span class="badge">3 trials</span>
-        <span class="badge">0.19s</span>
+        <span class="badge">0.41s</span>
       </div>
     </div>
     <div class="runmeta">
-      <div><b>run</b> 2026-11-16T05:58:13.596Z</div>
+      <div><b>run</b> 2026-11-17T05:39:49.337Z</div>
       <div><b>stacks</b> alpha · beta · gamma · delta</div>
       <div><b>calls</b> 384 · <b>errors</b> 0 · <b>checks</b> 151</div>
-      <div><b>skew</b> v0.7.0</div>
+      <div><b>skew</b> v0.8.0</div>
     </div>
   </header>
 
@@ -1030,13 +1030,14 @@ Rules: output JSON only. Do not explain your reasoning.</pre></details>
         <li>JSON is compared structurally, with unsafe integers preserved losslessly from the source text. Prose is compared after whitespace normalization.</li>
         <li>Native tool calls are normalized to <code>{name, arguments}</code>. Provider ids, envelopes, and serialization differences are ignored; tool choice and argument values are compared.</li>
         <li>In agent mode, tool calls are answered from static <code>toolResults</code> values or ordered <code>toolSequences</code>. skew never executes a tool or performs a real side effect. Each sequence step is a result or an injected error; after the last step, the last step repeats. The trace compares call order, arguments, returned results, injected errors, and where the loop stopped; assistant text is included according to <code>agentText</code>. The default <code>final</code> omits pre-tool narration because it is high-variance. Use <code>all</code> to compare every assistant message, or <code>none</code> to compare only calls, results, and where the loop stopped. Follow-up turns add the next scripted user message after a final answer and count against the same <code>maxTurns</code> budget.</li>
+        <li>Probes can override global <code>toolResults</code> and <code>toolSequences</code> tool by tool. An override replaces the global entry for that tool, so one suite can exercise different retry, failure, and recovery paths without shared sequence state. A probe cannot define both a static result and a sequence for the same tool.</li>
         <li>Stacks speak either OpenAI chat-completions or the Anthropic Messages API. Provider-specific sampling controls are not compared.</li>
       </ul>
     </div>
   </section>
 
   <footer>
-    <span>skew v0.7.0 · 18 findings · 151 minimization checks</span>
+    <span>skew v0.8.0 · 18 findings · 151 minimization checks</span>
     <span>machine-readable artifacts: findings.jsonl · summary.json</span>
   </footer>
 </div>

@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { generateProbes } from "./generate.ts";
 import type { Probe } from "./probe.ts";
+import { normalizeToolStep } from "./tool-step.ts";
+import type { ToolSequenceStep } from "./types.ts";
 
 export interface ProbeSpec {
   id: string;
@@ -9,6 +11,10 @@ export interface ProbeSpec {
   protected?: number[];
   tags?: string[];
   followUps?: string[];
+  /** Per-probe static tool overrides, merged over the global environment. */
+  toolResults?: Record<string, unknown>;
+  /** Per-probe scripted tool overrides, merged over the global environment. */
+  toolSequences?: Record<string, ToolSequenceStep[]>;
 }
 
 export interface LoadProbesOptions {
@@ -80,12 +86,34 @@ export function probeFromSpec(spec: ProbeSpec): Probe {
     }
   }
 
+  const toolResults: Record<string, unknown> = spec.toolResults
+    ? { ...spec.toolResults }
+    : {};
+  const toolSequences: Record<string, ToolSequenceStep[]> = {};
+  for (const [name, sequence] of Object.entries(
+    spec.toolSequences ?? {},
+  )) {
+    if (sequence.length === 0) {
+      throw new Error(
+        `probe "${spec.id}": toolSequences.${name} must not be empty`,
+      );
+    }
+    toolSequences[name] = [...sequence];
+  }
+  assertNoToolOverrideCollisions(
+    toolResults,
+    toolSequences,
+    `probe "${spec.id}"`,
+  );
+
   return {
     id: spec.id,
     segments: [...segments],
     protected: new Set(protectedIndices),
     tags: spec.tags ? [...spec.tags] : [],
     followUps: spec.followUps ? [...spec.followUps] : [],
+    toolResults,
+    toolSequences,
   };
 }
 
@@ -147,6 +175,15 @@ export function normalizeProbeSpec(
     record.followUps,
     `${label}.followUps`,
   );
+  const toolResults = optionalToolResults(
+    record.toolResults,
+    `${label}.toolResults`,
+  );
+  const toolSequences = optionalToolSequences(
+    record.toolSequences,
+    `${label}.toolSequences`,
+  );
+  assertNoToolOverrideCollisions(toolResults, toolSequences, label);
 
   return {
     id,
@@ -155,7 +192,63 @@ export function normalizeProbeSpec(
     ...(protectedIndices ? { protected: protectedIndices } : {}),
     ...(tags ? { tags } : {}),
     ...(followUps ? { followUps } : {}),
+    ...(toolResults ? { toolResults } : {}),
+    ...(toolSequences ? { toolSequences } : {}),
   };
+}
+
+function optionalToolResults(
+  value: unknown,
+  label: string,
+): Record<string, unknown> | undefined {
+  if (value === undefined) return undefined;
+  const record = asRecord(value, label);
+  const results: Record<string, unknown> = {};
+  for (const [name, result] of Object.entries(record)) {
+    if (name.trim() === "") {
+      throw new Error(`${label} contains an empty tool name`);
+    }
+    results[name] = result;
+  }
+  return results;
+}
+
+function optionalToolSequences(
+  value: unknown,
+  label: string,
+): Record<string, ToolSequenceStep[]> | undefined {
+  if (value === undefined) return undefined;
+  const record = asRecord(value, label);
+  const sequences: Record<string, ToolSequenceStep[]> = {};
+  for (const [name, raw] of Object.entries(record)) {
+    if (name.trim() === "") {
+      throw new Error(`${label} contains an empty tool name`);
+    }
+    if (!Array.isArray(raw) || raw.length === 0) {
+      throw new Error(`${label}.${name} must be a non-empty array`);
+    }
+    sequences[name] = raw.map((step, index) =>
+      normalizeToolStep(step, `${label}.${name}[${index}]`),
+    );
+  }
+  return sequences;
+}
+
+function assertNoToolOverrideCollisions(
+  toolResults: Record<string, unknown> | undefined,
+  toolSequences: Record<string, ToolSequenceStep[]> | undefined,
+  label: string,
+): void {
+  for (const name of Object.keys(toolSequences ?? {})) {
+    if (
+      toolResults !== undefined &&
+      Object.prototype.hasOwnProperty.call(toolResults, name)
+    ) {
+      throw new Error(
+        `${label} defines both toolResults.${name} and toolSequences.${name}`,
+      );
+    }
+  }
 }
 
 function parseProbeFile(raw: string, file: string): ProbeSpec[] {

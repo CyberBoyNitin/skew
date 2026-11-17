@@ -45,6 +45,60 @@ test("follow-up user turns are parsed and preserved", () => {
   );
 });
 
+test("probe tool overrides are parsed and preserved", () => {
+  const spec = normalizeProbeSpec({
+    id: "tool-overrides",
+    prompt: "Check both services.",
+    toolResults: { ping: { ok: true } },
+    toolSequences: {
+      pong: [{ result: { ok: false } }, { error: { code: "timeout" } }],
+    },
+  });
+  assert.deepEqual(spec.toolResults, { ping: { ok: true } });
+  assert.deepEqual(spec.toolSequences, {
+    pong: [{ result: { ok: false } }, { error: { code: "timeout" } }],
+  });
+
+  const probe = probeFromSpec(spec);
+  assert.deepEqual(probe.toolResults, { ping: { ok: true } });
+  assert.deepEqual(probe.toolSequences, {
+    pong: [{ result: { ok: false } }, { error: { code: "timeout" } }],
+  });
+});
+
+test("probe tool overrides reject ambiguous and malformed scripts", () => {
+  assert.throws(
+    () =>
+      normalizeProbeSpec({
+        id: "ambiguous",
+        prompt: "Check the service.",
+        toolResults: { ping: { ok: true } },
+        toolSequences: { ping: [{ result: { ok: true } }] },
+      }),
+    /defines both toolResults\.ping and toolSequences\.ping/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeProbeSpec({
+        id: "empty-sequence",
+        prompt: "Check the service.",
+        toolSequences: { ping: [] },
+      }),
+    /toolSequences\.ping must be a non-empty array/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeProbeSpec({
+        id: "bad-step",
+        prompt: "Check the service.",
+        toolSequences: { ping: [{ result: "ok", error: "boom" }] },
+      }),
+    /must contain exactly one/,
+  );
+});
+
 test("segments and protected indices are kept verbatim", () => {
   const probe = probeFromSpec({
     id: "y",
