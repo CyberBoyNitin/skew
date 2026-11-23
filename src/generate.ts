@@ -107,6 +107,7 @@ export function generateProbes(options: GenerateOptions = {}): Probe[] {
       followUps: [],
       toolResults: {},
       toolSequences: {},
+      toolRoutes: {},
     });
   }
 

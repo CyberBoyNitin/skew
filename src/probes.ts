@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { generateProbes } from "./generate.ts";
 import type { Probe } from "./probe.ts";
+import { normalizeToolRoutes } from "./tool-route.ts";
 import { normalizeToolStep } from "./tool-step.ts";
-import type { ToolSequenceStep } from "./types.ts";
+import type { ToolRoute, ToolSequenceStep } from "./types.ts";
 
 export interface ProbeSpec {
   id: string;
@@ -15,6 +16,8 @@ export interface ProbeSpec {
   toolResults?: Record<string, unknown>;
   /** Per-probe scripted tool overrides, merged over the global environment. */
   toolSequences?: Record<string, ToolSequenceStep[]>;
+  /** Per-probe argument-aware tool overrides, merged over the global environment. */
+  toolRoutes?: Record<string, ToolRoute[]>;
 }
 
 export interface LoadProbesOptions {
@@ -100,9 +103,16 @@ export function probeFromSpec(spec: ProbeSpec): Probe {
     }
     toolSequences[name] = [...sequence];
   }
+  const toolRoutes = spec.toolRoutes
+    ? normalizeToolRoutes(
+        spec.toolRoutes,
+        `probe "${spec.id}".toolRoutes`,
+      )
+    : {};
   assertNoToolOverrideCollisions(
     toolResults,
     toolSequences,
+    toolRoutes,
     `probe "${spec.id}"`,
   );
 
@@ -114,6 +124,7 @@ export function probeFromSpec(spec: ProbeSpec): Probe {
     followUps: spec.followUps ? [...spec.followUps] : [],
     toolResults,
     toolSequences,
+    toolRoutes,
   };
 }
 
@@ -183,7 +194,16 @@ export function normalizeProbeSpec(
     record.toolSequences,
     `${label}.toolSequences`,
   );
-  assertNoToolOverrideCollisions(toolResults, toolSequences, label);
+  const toolRoutes = optionalToolRoutes(
+    record.toolRoutes,
+    `${label}.toolRoutes`,
+  );
+  assertNoToolOverrideCollisions(
+    toolResults,
+    toolSequences,
+    toolRoutes,
+    label,
+  );
 
   return {
     id,
@@ -194,6 +214,7 @@ export function normalizeProbeSpec(
     ...(followUps ? { followUps } : {}),
     ...(toolResults ? { toolResults } : {}),
     ...(toolSequences ? { toolSequences } : {}),
+    ...(toolRoutes ? { toolRoutes } : {}),
   };
 }
 
@@ -234,9 +255,18 @@ function optionalToolSequences(
   return sequences;
 }
 
+function optionalToolRoutes(
+  value: unknown,
+  label: string,
+): Record<string, ToolRoute[]> | undefined {
+  if (value === undefined) return undefined;
+  return normalizeToolRoutes(value, label);
+}
+
 function assertNoToolOverrideCollisions(
   toolResults: Record<string, unknown> | undefined,
   toolSequences: Record<string, ToolSequenceStep[]> | undefined,
+  toolRoutes: Record<string, ToolRoute[]> | undefined,
   label: string,
 ): void {
   for (const name of Object.keys(toolSequences ?? {})) {
@@ -246,6 +276,24 @@ function assertNoToolOverrideCollisions(
     ) {
       throw new Error(
         `${label} defines both toolResults.${name} and toolSequences.${name}`,
+      );
+    }
+  }
+  for (const name of Object.keys(toolRoutes ?? {})) {
+    if (
+      toolResults !== undefined &&
+      Object.prototype.hasOwnProperty.call(toolResults, name)
+    ) {
+      throw new Error(
+        `${label} defines both toolResults.${name} and toolRoutes.${name}`,
+      );
+    }
+    if (
+      toolSequences !== undefined &&
+      Object.prototype.hasOwnProperty.call(toolSequences, name)
+    ) {
+      throw new Error(
+        `${label} defines both toolSequences.${name} and toolRoutes.${name}`,
       );
     }
   }

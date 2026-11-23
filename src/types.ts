@@ -26,6 +26,17 @@ export type ToolSequenceStep =
   | { error: unknown };
 
 /**
+ * One argument-aware tool response. The first route whose `when` fields are a
+ * subset of the call arguments wins. A route without `when` is a fallback and
+ * must be last. A route can return a static result, inject a static error, or
+ * run a sequence that advances per matching route.
+ */
+export type ToolRoute =
+  | { when?: Record<string, unknown>; result: unknown }
+  | { when?: Record<string, unknown>; error: unknown }
+  | { when?: Record<string, unknown>; sequence: ToolSequenceStep[] };
+
+/**
  * A tool call with the provider-issued id retained for multi-turn history.
  * The id is never compared; it only lets the next request reference the call.
  */
@@ -138,6 +149,8 @@ export interface RunMeta {
   followUps?: number;
   toolOverrideProbes?: number;
   toolOverrides?: number;
+  routedTools?: number;
+  routeRules?: number;
   stacks: string[];
   version: string;
   origin: string;

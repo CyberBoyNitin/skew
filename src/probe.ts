@@ -1,4 +1,4 @@
-import type { ToolSequenceStep } from "./types.ts";
+import type { ToolRoute, ToolSequenceStep } from "./types.ts";
 
 export interface Probe {
   id: string;
@@ -11,6 +11,8 @@ export interface Probe {
   toolResults: Record<string, unknown>;
   /** Per-probe scripted tool overrides, merged over the global environment. */
   toolSequences: Record<string, ToolSequenceStep[]>;
+  /** Per-probe argument-aware tool overrides, merged over the global environment. */
+  toolRoutes: Record<string, ToolRoute[]>;
 }
 
 export function promptOf(probe: Probe): string {

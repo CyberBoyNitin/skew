@@ -99,6 +99,85 @@ test("probe tool overrides reject ambiguous and malformed scripts", () => {
   );
 });
 
+test("probe argument-aware routes are parsed and preserved", () => {
+  const spec = normalizeProbeSpec({
+    id: "tool-routes",
+    prompt: "Look up the order.",
+    toolRoutes: {
+      get_order: [
+        {
+          when: { order_id: "8812" },
+          result: { order_id: "8812", status: "delivered" },
+        },
+        { error: { code: "not_found", retryable: false } },
+      ],
+    },
+  });
+  assert.deepEqual(spec.toolRoutes, {
+    get_order: [
+      {
+        when: { order_id: "8812" },
+        result: { order_id: "8812", status: "delivered" },
+      },
+      { error: { code: "not_found", retryable: false } },
+    ],
+  });
+
+  const probe = probeFromSpec(spec);
+  assert.deepEqual(probe.toolRoutes, spec.toolRoutes);
+});
+
+test("probe tool overrides reject route collisions and malformed routes", () => {
+  assert.throws(
+    () =>
+      normalizeProbeSpec({
+        id: "ambiguous-result",
+        prompt: "Check the service.",
+        toolResults: { ping: { ok: true } },
+        toolRoutes: { ping: [{ result: { ok: true } }] },
+      }),
+    /defines both toolResults\.ping and toolRoutes\.ping/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeProbeSpec({
+        id: "ambiguous-sequence",
+        prompt: "Check the service.",
+        toolSequences: { ping: [{ result: { ok: true } }] },
+        toolRoutes: { ping: [{ result: { ok: true } }] },
+      }),
+    /defines both toolSequences\.ping and toolRoutes\.ping/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeProbeSpec({
+        id: "bad-route",
+        prompt: "Check the service.",
+        toolRoutes: {
+          ping: [
+            { result: {} },
+            { when: { id: "x" }, result: {} },
+          ],
+        },
+      }),
+    /fallback route must be last/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeProbeSpec({
+        id: "bad-route-step",
+        prompt: "Check the service.",
+        toolRoutes: {
+          ping: [{ sequence: [{ result: "ok", error: "boom" }] }],
+        },
+      }),
+    /exactly one of "result" or "error"/,
+  );
+});
+
 test("segments and protected indices are kept verbatim", () => {
   const probe = probeFromSpec({
     id: "y",

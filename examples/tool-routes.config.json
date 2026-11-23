@@ -1,0 +1,214 @@
+{
+  "seed": 59,
+  "probes": 0,
+  "probeFiles": ["tool-routes.probes.json"],
+  "trials": 3,
+  "minStability": 0.8,
+  "minimize": true,
+  "maxChecks": 4,
+  "concurrency": 2,
+  "retries": 4,
+  "retryDelayMs": 2000,
+  "retryMaxDelayMs": 60000,
+  "maxTurns": 8,
+  "agentText": "none",
+  "tools": [
+    {
+      "name": "lookup_customer",
+      "description": "Look up a customer record by exact email address. Unknown emails return not_found.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Exact customer email."
+          }
+        },
+        "required": ["email"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Fetch an order by its exact order id. Unknown ids return not_found.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Exact order id."
+          }
+        },
+        "required": ["order_id"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "issue_refund",
+      "description": "Issue a refund against an order. The processor can decline permanently or fail temporarily.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "customer_id": { "type": "string" },
+          "order_id": { "type": "string" },
+          "amount": { "type": "number" },
+          "reason": { "type": "string" }
+        },
+        "required": ["customer_id", "order_id", "amount", "reason"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "check_refund_status",
+      "description": "Check the current status of a refund. Status can move from pending to approved.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "refund_id": {
+            "type": "string",
+            "description": "Exact refund id."
+          }
+        },
+        "required": ["refund_id"],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "toolRoutes": {
+    "lookup_customer": [
+      {
+        "when": { "email": "ada@example.com" },
+        "result": {
+          "customer_id": "cus_1042",
+          "name": "Ada Lovelace",
+          "email": "ada@example.com",
+          "status": "active",
+          "plan": "pro"
+        }
+      },
+      {
+        "when": { "email": "grace@example.com" },
+        "result": {
+          "customer_id": "cus_2051",
+          "name": "Grace Hopper",
+          "email": "grace@example.com",
+          "status": "trial",
+          "plan": "team"
+        }
+      },
+      {
+        "error": {
+          "code": "customer_not_found",
+          "message": "no customer for that email",
+          "retryable": false
+        }
+      }
+    ],
+    "get_order": [
+      {
+        "when": { "order_id": "8812" },
+        "result": {
+          "order_id": "8812",
+          "customer_id": "cus_1042",
+          "status": "delivered",
+          "total": 49.99,
+          "currency": "USD",
+          "damaged": true
+        }
+      },
+      {
+        "when": { "order_id": "5521" },
+        "result": {
+          "order_id": "5521",
+          "customer_id": "cus_2051",
+          "status": "processing",
+          "total": 18.5,
+          "currency": "USD",
+          "damaged": false
+        }
+      },
+      {
+        "error": {
+          "code": "order_not_found",
+          "message": "no order for that id",
+          "retryable": false
+        }
+      }
+    ],
+    "issue_refund": [
+      {
+        "when": { "order_id": "8812" },
+        "result": {
+          "refund_id": "re_9001",
+          "order_id": "8812",
+          "amount": 49.99,
+          "currency": "USD",
+          "status": "approved"
+        }
+      },
+      {
+        "error": {
+          "code": "refund_not_allowed",
+          "message": "refund is only configured for order 8812",
+          "retryable": false
+        }
+      }
+    ],
+    "check_refund_status": [
+      {
+        "when": { "refund_id": "re_9001" },
+        "result": {
+          "refund_id": "re_9001",
+          "status": "approved"
+        }
+      },
+      {
+        "when": { "refund_id": "re_7781" },
+        "sequence": [
+          {
+            "result": {
+              "refund_id": "re_7781",
+              "status": "pending"
+            }
+          },
+          {
+            "result": {
+              "refund_id": "re_7781",
+              "status": "approved"
+            }
+          }
+        ]
+      },
+      {
+        "error": {
+          "code": "refund_status_not_found",
+          "message": "no refund for that id",
+          "retryable": false
+        }
+      }
+    ]
+  },
+  "toolChoice": "auto",
+  "stacks": [
+    {
+      "name": "gpt-oss-120b",
+      "protocol": "openai",
+      "baseUrl": "http://127.0.0.1:20128/v1",
+      "model": "agy/gpt-oss-120b-medium",
+      "apiKeyEnv": "OMNIROUTE_API_KEY",
+      "temperature": 0,
+      "timeoutMs": 120000,
+      "maxTokens": 512
+    },
+    {
+      "name": "claude-sonnet-anthropic",
+      "protocol": "anthropic",
+      "baseUrl": "http://127.0.0.1:20128/v1",
+      "model": "agy/claude-sonnet-4-6",
+      "apiKeyEnv": "OMNIROUTE_API_KEY",
+      "temperature": 0,
+      "timeoutMs": 120000,
+      "maxTokens": 512
+    }
+  ]
+}

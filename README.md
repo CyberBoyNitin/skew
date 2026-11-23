@@ -2,9 +2,9 @@
 
 **Differential fuzzing for LLM stacks.** Find where two models, providers, or
 quantizations behave differently on the same prompt or multi-turn tool workflow,
-including follow-up conversations, retries, failure recovery, and probe-scoped
-tool environments, then minimize each disagreement to its smallest reproducible
-form.
+including argument-aware tool routes, follow-up conversations, retries, failure
+recovery, and probe-scoped tool environments, then minimize each disagreement to
+its smallest reproducible form.
 
 ![skew report](docs/demo/report.png)
 
@@ -234,6 +234,21 @@ npm run replay:real
 
 See [`docs/real/README.md`](docs/real/README.md) for the stack versions,
 numbers, and caveats.
+
+## Example: argument-aware tool routes
+
+[`examples/tool-routes.config.json`](examples/tool-routes.config.json) answers
+tool calls by their arguments rather than one static result or sequence per
+tool. Different customer emails and order ids return different records, and a
+status tool keeps independent pending → approved sequences per refund id. It is
+a ready-to-run example for your own stacks; no fixtures are committed for it.
+
+```bash
+npm run real:tool-routes
+```
+
+See [`docs/tool-routes/README.md`](docs/tool-routes/README.md) for the matching
+rules, route state, and caveats.
 
 ## Why
 
@@ -476,10 +491,58 @@ cannot be combined for the same tool. Explicit error steps are marked as tool
 errors for Anthropic; OpenAI receives the serialized error content. See
 [`examples/agent-failures.config.json`](examples/agent-failures.config.json).
 
+When a response depends on the call arguments, use `toolRoutes` instead of a
+single result or sequence. Each route has an optional `when` object matched as a
+recursive subset of the parsed arguments; the first matching route wins. A route
+can return a `result`, inject an `error`, or run a `sequence`. At most one route
+may omit `when`, and it must be last so it acts as a fallback:
+
+```json
+{
+  "maxTurns": 4,
+  "tools": [
+    {
+      "name": "get_order",
+      "description": "Fetch an order by id.",
+      "parameters": {
+        "type": "object",
+        "properties": { "order_id": { "type": "string" } },
+        "required": ["order_id"]
+      }
+    }
+  ],
+  "toolRoutes": {
+    "get_order": [
+      {
+        "when": { "order_id": "8812" },
+        "result": { "order_id": "8812", "status": "delivered" }
+      },
+      {
+        "when": { "order_id": "5521" },
+        "sequence": [
+          { "error": { "code": "upstream_timeout", "retryable": true } },
+          { "result": { "order_id": "5521", "status": "processing" } }
+        ]
+      },
+      { "error": { "code": "order_not_found", "retryable": false } }
+    ]
+  }
+}
+```
+
+Extra argument keys are allowed, arrays must match exactly, and nested objects
+are compared recursively. A sequence inside a route advances per tool *and
+route*, so two order ids can have independent retry state. A call with no
+matching route receives an injected `no_matching_tool_route` error. A tool
+cannot combine `toolRoutes` with `toolResults` or `toolSequences`, but probes can
+override routes like any other tool entry. See
+[`examples/tool-routes.config.json`](examples/tool-routes.config.json) and
+[`examples/tool-routes.probes.json`](examples/tool-routes.probes.json).
+
 Probes can override a global tool entry for one scenario. The override replaces
-the global result or sequence for that tool only; every other tool keeps the
-global default. This lets one suite test decline, retry, timeout, and success
-paths on the same tool without shared sequence state:
+the global result, sequence, or route list for that tool only; every other tool
+keeps the global default. This lets one suite test decline, retry, timeout, and
+success paths on the same tool without shared sequence state:
 
 ```json
 {
@@ -509,10 +572,10 @@ paths on the same tool without shared sequence state:
 }
 ```
 
-The top-level `toolResults`/`toolSequences` still need a deterministic default
-for every configured tool; a probe only replaces selected entries. A probe
-cannot define both `toolResults` and `toolSequences` for the same tool. Probe
-overrides work in inline `customProbes` and in probe files. See
+The top-level `toolResults`/`toolSequences`/`toolRoutes` still need a
+deterministic default for every configured tool; a probe only replaces selected
+entries. A probe cannot define more than one of those entry types for the same
+tool. Probe overrides work in inline `customProbes` and in probe files. See
 [`examples/scenarios.config.json`](examples/scenarios.config.json) and
 [`examples/scenarios.probes.json`](examples/scenarios.probes.json) for a suite
 where the same `issue_refund` tool declines in one probe, recovers in another,
@@ -645,13 +708,14 @@ skew run --config <file> [options]  compare live OpenAI or Anthropic stacks
   lossless. Provider tool ids are retained internally so the next turn can
   reference the call, then omitted from compared traces.
 - **Bounded agent loop.** `maxTurns` caps model calls per conversation. Tool
-  calls are answered from static `toolResults` or ordered `toolSequences`, the
-  resulting messages are translated back to each protocol, and the loop stops on
-  a final answer or the budget. Scripted `followUps` append the next user turn
-  after a final answer while preserving the same history. Probe-level overrides
-  replace selected global tool entries per scenario. Sequence steps can inject
-  errors, so retry and recovery behavior is comparable without a live backend.
-  `agentText` decides whether pre-tool narration is compared.
+  calls are answered from static `toolResults`, argument-aware `toolRoutes`, or
+  ordered `toolSequences`, the resulting messages are translated back to each
+  protocol, and the loop stops on a final answer or the budget. Scripted
+  `followUps` append the next user turn after a final answer while preserving the
+  same history. Probe-level overrides replace selected global tool entries per
+  scenario. Route and sequence steps can inject errors, so retry and recovery
+  behavior is comparable without a live backend. `agentText` decides whether
+  pre-tool narration is compared.
 - **Output caps.** Every request sends `max_tokens` (default 512) so a chatty
   model cannot stall a run with unbounded generation.
 - **Record/replay.** Each successful completion is keyed by stack, probe
@@ -672,13 +736,18 @@ skew run --config <file> [options]  compare live OpenAI or Anthropic stacks
   Custom probes are compared as-is, with no ground-truth answer.
 - Recordings contain successful responses only. A replayed run must use the same
   probe set, seed, trial count, minimization budget, tool definitions,
-  `toolResults`, `toolSequences`, `maxTurns`, and `agentText`; otherwise a
-  request can miss the fixture and fail loudly.
-- Agent tool results are static or sequenced config values. `skew` does not
-  execute tools, validate arguments against a live backend, or reproduce a real
-  backend's state transitions. The sequence advances by call count and repeats
-  its last step; it does not simulate latency, partial payloads, or concurrency
-  side effects. Unknown tool names receive a JSON error result.
+  `toolResults`, `toolSequences`, `toolRoutes`, `maxTurns`, and `agentText`;
+  otherwise a request can miss the fixture and fail loudly.
+- Agent tool results are static, routed, or sequenced config values. `skew` does
+  not execute tools, validate arguments against a live backend, or reproduce a
+  real backend's state transitions. A sequence advances by call count and repeats
+  its last step; a route sequence advances per matching route. Neither simulates
+  latency, partial payloads, or concurrency side effects. Unknown tool names and
+  calls with no matching route receive a JSON error result.
+- Routes match parsed call arguments as a recursive subset: extra keys are
+  allowed, but arrays must match in length and order, and there are no pattern
+  or predicate matchers. The first matching route wins, so any fallback route
+  without `when` must be last.
 - `maxTurns` is a hard budget for the whole conversation. A trace that ends with
   `finish: "max_turns"` did not produce a final answer inside the budget, and any
   remaining follow-ups were not sent.

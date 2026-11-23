@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { normalizeProbeSpec } from "./probes.ts";
 import type { ProbeSpec } from "./probes.ts";
 import { AnthropicRunner, HttpRunner } from "./runners.ts";
+import { normalizeToolRoutes as normalizeRouteMap } from "./tool-route.ts";
 import { normalizeToolStep } from "./tool-step.ts";
 import type {
   AgentText,
@@ -11,6 +12,7 @@ import type {
   Runner,
   ToolChoice,
   ToolDefinition,
+  ToolRoute,
   ToolSequenceStep,
 } from "./types.ts";
 
@@ -44,6 +46,7 @@ export interface SkewConfig {
   maxTurns: number;
   toolResults: Record<string, unknown>;
   toolSequences: Record<string, ToolSequenceStep[]>;
+  toolRoutes: Record<string, ToolRoute[]>;
   agentText: AgentText;
   stacks: StackConfig[];
 }
@@ -153,13 +156,17 @@ export function normalizeConfig(
   const toolChoice = normalizeToolChoice(root.toolChoice, tools);
   const toolResults = normalizeToolResults(root.toolResults, tools);
   const toolSequences = normalizeToolSequences(root.toolSequences, tools);
+  const toolRoutes = normalizeToolRoutesConfig(root.toolRoutes, tools);
   validateToolConfiguration(
     tools,
     toolChoice,
     maxTurns,
     toolResults,
     toolSequences,
-    root.toolResults !== undefined || root.toolSequences !== undefined,
+    toolRoutes,
+    root.toolResults !== undefined ||
+      root.toolSequences !== undefined ||
+      root.toolRoutes !== undefined,
   );
 
   const stacks = rawStacks.map((value, index) =>
@@ -196,6 +203,7 @@ export function normalizeConfig(
     maxTurns,
     toolResults,
     toolSequences,
+    toolRoutes,
     agentText,
     stacks,
   };
@@ -382,16 +390,36 @@ function normalizeToolSequences(
   return sequences;
 }
 
+function normalizeToolRoutesConfig(
+  value: unknown,
+  tools: readonly ToolDefinition[],
+): Record<string, ToolRoute[]> {
+  if (value === undefined) return {};
+
+  const record = asRecord(value, "config.toolRoutes");
+  const names = new Set(tools.map((tool) => tool.name));
+  for (const key of Object.keys(record)) {
+    if (!names.has(key)) {
+      throw new Error(
+        `config.toolRoutes has an entry for unknown tool "${key}"`,
+      );
+    }
+  }
+  return normalizeRouteMap(record, "config.toolRoutes");
+}
+
 function validateToolConfiguration(
   tools: readonly ToolDefinition[],
   toolChoice: ToolChoice | undefined,
   maxTurns: number,
   toolResults: Record<string, unknown>,
   toolSequences: Record<string, ToolSequenceStep[]>,
+  toolRoutes: Record<string, ToolRoute[]>,
   hasToolConfig: boolean,
 ): void {
   const resultKeys = Object.keys(toolResults);
   const sequenceKeys = Object.keys(toolSequences);
+  const routeKeys = Object.keys(toolRoutes);
 
   if (maxTurns === 1) {
     if (resultKeys.length > 0) {
@@ -402,6 +430,11 @@ function validateToolConfiguration(
     if (sequenceKeys.length > 0) {
       throw new Error(
         "config.toolSequences requires maxTurns >= 2; raise maxTurns to enable a tool loop",
+      );
+    }
+    if (routeKeys.length > 0) {
+      throw new Error(
+        "config.toolRoutes requires maxTurns >= 2; raise maxTurns to enable a tool loop",
       );
     }
     return;
@@ -418,10 +451,11 @@ function validateToolConfiguration(
   if (
     !hasToolConfig &&
     resultKeys.length === 0 &&
-    sequenceKeys.length === 0
+    sequenceKeys.length === 0 &&
+    routeKeys.length === 0
   ) {
     throw new Error(
-      "config.maxTurns > 1 requires config.toolResults or config.toolSequences",
+      "config.maxTurns > 1 requires config.toolResults, config.toolSequences, or config.toolRoutes",
     );
   }
 
@@ -434,14 +468,28 @@ function validateToolConfiguration(
       toolSequences,
       tool.name,
     );
+    const hasRoutes = Object.prototype.hasOwnProperty.call(
+      toolRoutes,
+      tool.name,
+    );
     if (hasResult && hasSequence) {
       throw new Error(
         `config.toolResults.${tool.name} cannot be combined with config.toolSequences.${tool.name}`,
       );
     }
-    if (!hasResult && !hasSequence) {
+    if (hasResult && hasRoutes) {
       throw new Error(
-        `config.toolResults or config.toolSequences is missing a result for tool "${tool.name}"`,
+        `config.toolResults.${tool.name} cannot be combined with config.toolRoutes.${tool.name}`,
+      );
+    }
+    if (hasSequence && hasRoutes) {
+      throw new Error(
+        `config.toolSequences.${tool.name} cannot be combined with config.toolRoutes.${tool.name}`,
+      );
+    }
+    if (!hasResult && !hasSequence && !hasRoutes) {
+      throw new Error(
+        `config.toolResults, config.toolSequences, or config.toolRoutes is missing a result or route for tool "${tool.name}"`,
       );
     }
   }

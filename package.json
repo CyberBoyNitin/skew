@@ -1,7 +1,7 @@
 {
   "name": "skew-cli",
-  "version": "0.8.0",
-  "description": "Differential fuzzing for LLM stacks, including failure-aware tool workflows, scripted follow-up conversations, and probe-scoped tool environments: find, classify, and minimize behavioral divergences.",
+  "version": "0.9.0",
+  "description": "Differential fuzzing for LLM stacks, including argument-aware tool routes, failure-aware workflows, scripted follow-up conversations, and probe-scoped tool environments: find, classify, and minimize behavioral divergences.",
   "type": "module",
   "bin": {
     "skew": "./dist/cli.js"
@@ -33,6 +33,7 @@
     "real:agent-failures": "node src/cli.ts run --config examples/agent-failures.config.json",
     "real:conversation": "node src/cli.ts run --config examples/conversation.config.json",
     "real:scenarios": "node src/cli.ts run --config examples/scenarios.config.json",
+    "real:tool-routes": "node src/cli.ts run --config examples/tool-routes.config.json",
     "replay:real": "node src/cli.ts run --config examples/omniroute.config.json --replay docs/real/fixtures",
     "replay:tools": "node src/cli.ts run --config examples/tools.config.json --replay docs/tools/fixtures",
     "replay:anthropic": "node src/cli.ts run --config examples/omniroute-anthropic.config.json --replay docs/anthropic/fixtures",
@@ -55,6 +56,7 @@
     "conversation",
     "scenario-isolation",
     "failure-injection",
+    "argument-routing",
     "ai-infrastructure",
     "typescript"
   ],

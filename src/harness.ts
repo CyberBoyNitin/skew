@@ -5,6 +5,7 @@ import { promptOf, probeWithSegments } from "./probe.ts";
 import type { Probe } from "./probe.ts";
 import { RunnerError } from "./runners.ts";
 import { Semaphore } from "./semaphore.ts";
+import { hasRouteSequence, routeErrorSteps } from "./tool-route.ts";
 import { isAgentRunner } from "./types.ts";
 import type {
   AgentRunner,
@@ -14,6 +15,7 @@ import type {
   Run,
   Runner,
   RunStats,
+  ToolRoute,
   ToolSequenceStep,
   UnstableGroup,
 } from "./types.ts";
@@ -36,6 +38,7 @@ export interface HarnessOptions {
   maxTurns?: number;
   toolResults?: Record<string, unknown>;
   toolSequences?: Record<string, ToolSequenceStep[]>;
+  toolRoutes?: Record<string, ToolRoute[]>;
   toolNames?: string[];
   agentText?: AgentText;
 }
@@ -65,6 +68,7 @@ export class Harness {
   private readonly maxTurns: number;
   private readonly toolResults: Record<string, unknown>;
   private readonly toolSequences: Record<string, ToolSequenceStep[]>;
+  private readonly toolRoutes: Record<string, ToolRoute[]>;
   private readonly agentText: AgentText;
   private readonly semaphore: Semaphore;
 
@@ -95,17 +99,22 @@ export class Harness {
     }
     const toolResults = options.toolResults ?? {};
     const toolSequences = options.toolSequences ?? {};
+    const toolRoutes = options.toolRoutes ?? {};
     if (
       maxTurns > 1 &&
       Object.keys(toolResults).length === 0 &&
-      Object.keys(toolSequences).length === 0
+      Object.keys(toolSequences).length === 0 &&
+      Object.keys(toolRoutes).length === 0
     ) {
       throw new Error(
-        "agent loops require at least one toolResults or toolSequences entry",
+        "agent loops require at least one toolResults, toolSequences, or toolRoutes entry",
       );
     }
     if (maxTurns === 1 && Object.keys(toolSequences).length > 0) {
       throw new Error("toolSequences requires maxTurns > 1");
+    }
+    if (maxTurns === 1 && Object.keys(toolRoutes).length > 0) {
+      throw new Error("toolRoutes requires maxTurns > 1");
     }
     if (
       maxTurns === 1 &&
@@ -120,6 +129,18 @@ export class Harness {
         );
       }
     }
+    for (const name of Object.keys(toolRoutes)) {
+      if (Object.prototype.hasOwnProperty.call(toolResults, name)) {
+        throw new Error(
+          `tool "${name}" has both toolResults and toolRoutes`,
+        );
+      }
+      if (Object.prototype.hasOwnProperty.call(toolSequences, name)) {
+        throw new Error(
+          `tool "${name}" has both toolSequences and toolRoutes`,
+        );
+      }
+    }
     if (maxTurns === 1) {
       const sequencedProbe = options.probes.find(
         (probe) => Object.keys(probe.toolSequences).length > 0,
@@ -129,12 +150,21 @@ export class Harness {
           `probe "${sequencedProbe.id}" toolSequences requires maxTurns > 1`,
         );
       }
+      const routedProbe = options.probes.find(
+        (probe) => Object.keys(probe.toolRoutes).length > 0,
+      );
+      if (routedProbe) {
+        throw new Error(
+          `probe "${routedProbe.id}" toolRoutes requires maxTurns > 1`,
+        );
+      }
     }
     if (options.toolNames) {
       const knownTools = new Set(options.toolNames);
       for (const name of [
         ...Object.keys(toolResults),
         ...Object.keys(toolSequences),
+        ...Object.keys(toolRoutes),
       ]) {
         if (!knownTools.has(name)) {
           throw new Error(`unknown tool "${name}" in tool configuration`);
@@ -144,6 +174,7 @@ export class Harness {
         for (const name of [
           ...Object.keys(probe.toolResults),
           ...Object.keys(probe.toolSequences),
+          ...Object.keys(probe.toolRoutes),
         ]) {
           if (!knownTools.has(name)) {
             throw new Error(
@@ -158,6 +189,18 @@ export class Harness {
         if (Object.prototype.hasOwnProperty.call(probe.toolResults, name)) {
           throw new Error(
             `probe "${probe.id}" has both toolResults and toolSequences for tool "${name}"`,
+          );
+        }
+      }
+      for (const name of Object.keys(probe.toolRoutes)) {
+        if (Object.prototype.hasOwnProperty.call(probe.toolResults, name)) {
+          throw new Error(
+            `probe "${probe.id}" has both toolResults and toolRoutes for tool "${name}"`,
+          );
+        }
+        if (Object.prototype.hasOwnProperty.call(probe.toolSequences, name)) {
+          throw new Error(
+            `probe "${probe.id}" has both toolSequences and toolRoutes for tool "${name}"`,
           );
         }
       }
@@ -182,6 +225,7 @@ export class Harness {
     this.maxTurns = maxTurns;
     this.toolResults = toolResults;
     this.toolSequences = toolSequences;
+    this.toolRoutes = toolRoutes;
     this.agentText = agentText;
     this.semaphore = new Semaphore(options.concurrency ?? 4);
 
@@ -310,6 +354,10 @@ export class Harness {
           ...this.probes.flatMap((probe) =>
             Object.keys(probe.toolSequences),
           ),
+          ...sequencedRouteTools(this.toolRoutes),
+          ...this.probes.flatMap((probe) =>
+            sequencedRouteTools(probe.toolRoutes),
+          ),
         ]).size,
         injectedErrors:
           Object.values(this.toolSequences).reduce(
@@ -327,6 +375,12 @@ export class Harness {
                 0,
               ),
             0,
+          ) +
+          countRouteErrors(this.toolRoutes) +
+          this.probes.reduce(
+            (total, probe) =>
+              total + countRouteErrors(probe.toolRoutes),
+            0,
           ),
         followUpProbes: this.probes.filter(
           (probe) => probe.followUps.length > 0,
@@ -338,7 +392,8 @@ export class Harness {
         toolOverrideProbes: this.probes.filter(
           (probe) =>
             Object.keys(probe.toolResults).length +
-              Object.keys(probe.toolSequences).length >
+              Object.keys(probe.toolSequences).length +
+              Object.keys(probe.toolRoutes).length >
             0,
         ).length,
         toolOverrides: this.probes.reduce(
@@ -347,9 +402,22 @@ export class Harness {
             new Set([
               ...Object.keys(probe.toolResults),
               ...Object.keys(probe.toolSequences),
+              ...Object.keys(probe.toolRoutes),
             ]).size,
           0,
         ),
+        routedTools: new Set([
+          ...Object.keys(this.toolRoutes),
+          ...this.probes.flatMap((probe) =>
+            Object.keys(probe.toolRoutes),
+          ),
+        ]).size,
+        routeRules:
+          countRoutes(this.toolRoutes) +
+          this.probes.reduce(
+            (total, probe) => total + countRoutes(probe.toolRoutes),
+            0,
+          ),
         stacks: this.stacks.map((stack) => stack.name),
         version: this.version,
         origin: this.origin,
@@ -371,6 +439,7 @@ export class Harness {
       probe,
       this.toolResults,
       this.toolSequences,
+      this.toolRoutes,
     );
     const key = JSON.stringify([
       stack.name,
@@ -381,6 +450,7 @@ export class Harness {
       this.agentText,
       environment.toolResults,
       environment.toolSequences,
+      environment.toolRoutes,
       probe.followUps,
     ]);
     const cached = this.cache.get(key);
@@ -444,6 +514,7 @@ export class Harness {
       probe,
       this.toolResults,
       this.toolSequences,
+      this.toolRoutes,
     );
     return runAgent(
       prompt,
@@ -451,6 +522,7 @@ export class Harness {
         maxTurns: this.maxTurns,
         toolResults: environment.toolResults,
         toolSequences: environment.toolSequences,
+        toolRoutes: environment.toolRoutes,
         followUps: probe.followUps,
         agentText: this.agentText,
       },
@@ -599,23 +671,57 @@ function resolveProbeToolEnvironment(
   probe: Probe,
   globalResults: Record<string, unknown>,
   globalSequences: Record<string, ToolSequenceStep[]>,
+  globalRoutes: Record<string, ToolRoute[]>,
 ): {
   toolResults: Record<string, unknown>;
   toolSequences: Record<string, ToolSequenceStep[]>;
+  toolRoutes: Record<string, ToolRoute[]>;
 } {
   const toolResults = { ...globalResults };
   const toolSequences = { ...globalSequences };
+  const toolRoutes = { ...globalRoutes };
 
   for (const [name, result] of Object.entries(probe.toolResults)) {
     delete toolSequences[name];
+    delete toolRoutes[name];
     toolResults[name] = result;
   }
   for (const [name, sequence] of Object.entries(probe.toolSequences)) {
     delete toolResults[name];
+    delete toolRoutes[name];
     toolSequences[name] = sequence;
   }
+  for (const [name, routes] of Object.entries(probe.toolRoutes)) {
+    delete toolResults[name];
+    delete toolSequences[name];
+    toolRoutes[name] = routes;
+  }
 
-  return { toolResults, toolSequences };
+  return { toolResults, toolSequences, toolRoutes };
+}
+
+function sequencedRouteTools(
+  routes: Record<string, ToolRoute[]>,
+): string[] {
+  return Object.entries(routes)
+    .filter(([, list]) => list.some(hasRouteSequence))
+    .map(([name]) => name);
+}
+
+function countRouteErrors(routes: Record<string, ToolRoute[]>): number {
+  return Object.values(routes).reduce(
+    (total, list) =>
+      total +
+      list.reduce((subtotal, route) => subtotal + routeErrorSteps(route), 0),
+    0,
+  );
+}
+
+function countRoutes(routes: Record<string, ToolRoute[]>): number {
+  return Object.values(routes).reduce(
+    (total, list) => total + list.length,
+    0,
+  );
 }
 
 function sleep(ms: number): Promise<void> {

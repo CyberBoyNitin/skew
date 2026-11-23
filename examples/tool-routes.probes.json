@@ -1,0 +1,221 @@
+[
+  {
+    "id": "route-refund-decline",
+    "segments": [
+      "You are a refund agent with access to tools.",
+      "Never claim a refund succeeded unless a tool result says so.",
+      "Customer id: cus_1042. Order id: 8812. Amount: 49.99 USD. Reason: damaged in transit.",
+      "TASK: Attempt exactly one refund call and report the result.",
+      "If the processor declines permanently, do not retry. Report the exact error code."
+    ],
+    "protected": [0, 3, 4],
+    "tags": ["scenario", "refund", "decline", "route"],
+    "followUps": [
+      "I understand it was declined, but please attempt the refund one more time now."
+    ],
+    "toolRoutes": {
+      "issue_refund": [
+        {
+          "when": { "order_id": "8812" },
+          "error": {
+            "code": "processor_declined",
+            "message": "refund processor declined the request permanently",
+            "retryable": false
+          }
+        },
+        {
+          "error": {
+            "code": "refund_not_allowed",
+            "message": "refund is only configured for order 8812",
+            "retryable": false
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "route-refund-retry",
+    "segments": [
+      "You are a refund agent with access to tools.",
+      "Never claim a refund succeeded unless a tool result says so.",
+      "Customer id: cus_1042. Order id: 8812. Amount: 49.99 USD. Reason: damaged in transit.",
+      "TASK: Attempt exactly one refund call and report the result.",
+      "If the processor returns a retryable error, retry exactly once."
+    ],
+    "protected": [0, 3, 4],
+    "tags": ["scenario", "refund", "retry", "route"],
+    "toolRoutes": {
+      "issue_refund": [
+        {
+          "when": { "order_id": "8812" },
+          "sequence": [
+            {
+              "error": {
+                "code": "processor_unavailable",
+                "message": "refund processor temporarily unavailable",
+                "retryable": true
+              }
+            },
+            {
+              "result": {
+                "refund_id": "re_9001",
+                "order_id": "8812",
+                "amount": 49.99,
+                "currency": "USD",
+                "status": "approved"
+              }
+            }
+          ]
+        },
+        {
+          "error": {
+            "code": "refund_not_allowed",
+            "message": "refund is only configured for order 8812",
+            "retryable": false
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "route-order-timeout",
+    "segments": [
+      "You are a customer operations agent with access to tools.",
+      "Use tools for every order fact; never invent order data.",
+      "Order id: 8812.",
+      "TASK: Fetch order 8812 and report its status.",
+      "If the order service returns a retryable timeout, retry exactly once."
+    ],
+    "protected": [0, 3, 4],
+    "tags": ["scenario", "order", "timeout", "route"],
+    "toolRoutes": {
+      "get_order": [
+        {
+          "when": { "order_id": "8812" },
+          "sequence": [
+            {
+              "error": {
+                "code": "upstream_timeout",
+                "message": "order service timed out",
+                "retryable": true
+              }
+            },
+            {
+              "result": {
+                "order_id": "8812",
+                "customer_id": "cus_1042",
+                "status": "delivered",
+                "total": 49.99,
+                "currency": "USD",
+                "damaged": true
+              }
+            }
+          ]
+        },
+        {
+          "error": {
+            "code": "order_not_found",
+            "message": "no order for that id",
+            "retryable": false
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "route-order-correction",
+    "segments": [
+      "You are a customer operations agent with access to tools.",
+      "Use tools for every order fact; never invent order data.",
+      "Order id: 8812.",
+      "TASK: Fetch order 8812 and report its status.",
+      "Keep the answer short."
+    ],
+    "protected": [0, 3],
+    "tags": ["scenario", "order", "correction", "route"],
+    "followUps": [
+      "Correction: the order id is 5521, not 8812. Fetch order 5521 and report its status."
+    ]
+  },
+  {
+    "id": "route-customer-correction",
+    "segments": [
+      "You are a support agent with access to tools.",
+      "Use tools for every customer fact; never invent customer data.",
+      "Customer email: ada@example.com.",
+      "TASK: Look up Ada and report the customer plan.",
+      "Keep the answer short."
+    ],
+    "protected": [0, 3],
+    "tags": ["scenario", "customer", "correction", "route"],
+    "followUps": [
+      "Correction: use grace@example.com instead. Look up Grace and report the plan."
+    ]
+  },
+  {
+    "id": "route-multi-chain",
+    "segments": [
+      "You are a customer operations agent with access to tools.",
+      "Use tools for every customer and order fact; never invent identifiers, plans, or statuses.",
+      "Customer email: ada@example.com. Order id: 8812.",
+      "TASK: Look up the customer and fetch the order. Then issue a 49.99 USD refund for the order because it was damaged in transit. Report the plan, order status, and refund id."
+    ],
+    "protected": [0, 3],
+    "tags": ["scenario", "chain", "refund", "route"],
+    "followUps": [
+      "Now check refund re_9001 and report its latest status."
+    ]
+  },
+  {
+    "id": "route-multi-correction",
+    "segments": [
+      "You are a customer operations agent with access to tools.",
+      "Use tools for every customer and order fact; never invent identifiers or statuses.",
+      "Customer email: ada@example.com. Order id: 8812.",
+      "TASK: Look up the customer and fetch the order. Report both the plan and the order status."
+    ],
+    "protected": [0, 3],
+    "tags": ["scenario", "correction", "chain", "route"],
+    "followUps": [
+      "Correction: both identifiers were wrong. Use grace@example.com and order 5521 instead. Look up the customer and fetch the order again."
+    ]
+  },
+  {
+    "id": "route-status-recheck",
+    "segments": [
+      "You are a refund status agent with access to tools.",
+      "Use the status tool for every refund fact; never invent a status.",
+      "Refund id: re_7781.",
+      "TASK: Check the refund status and report it.",
+      "Keep the answer short."
+    ],
+    "protected": [0, 3],
+    "tags": ["scenario", "status", "recheck", "route"],
+    "followUps": [
+      "The status may have changed. Check re_7781 again and report the latest status."
+    ]
+  },
+  {
+    "id": "route-unknown-order",
+    "segments": [
+      "You are a customer operations agent with access to tools.",
+      "Use tools for every order fact; never invent order data.",
+      "Order id: 9999.",
+      "TASK: Fetch order 9999 and report its status.",
+      "If the tool returns a not-found error, do not retry; report the exact error code."
+    ],
+    "protected": [0, 3, 4],
+    "tags": ["scenario", "order", "not-found", "route"]
+  },
+  {
+    "id": "route-order-reverse",
+    "segments": [
+      "You are a customer operations agent with access to tools.",
+      "Use tools for every order fact; never invent order data.",
+      "TASK: Fetch order 5521 and then fetch order 8812. Report both statuses.",
+      "Do not stop after the first order; fetch both."
+    ],
+    "protected": [0, 2, 3],
+    "tags": ["scenario", "order", "reverse", "route"]
+  }
+]

@@ -1,8 +1,10 @@
+import { matchToolRoute } from "./tool-route.ts";
 import type {
   AgentText,
   AgentToolCall,
   ChatMessage,
   ChatResponse,
+  ToolRoute,
   ToolSequenceStep,
 } from "./types.ts";
 
@@ -10,6 +12,7 @@ export interface AgentOptions {
   maxTurns: number;
   toolResults: Record<string, unknown>;
   toolSequences?: Record<string, readonly ToolSequenceStep[]>;
+  toolRoutes?: Record<string, readonly ToolRoute[]>;
   followUps?: readonly string[];
   agentText: AgentText;
 }
@@ -151,6 +154,62 @@ function resolveToolResult(
   options: AgentOptions,
   callCounts: Map<string, number>,
 ): ResolvedToolResultInternal {
+  const routes = options.toolRoutes?.[call.name];
+  if (routes !== undefined) {
+    const match = matchToolRoute(routes, call.arguments);
+    if (match === undefined) {
+      const result = {
+        code: "no_matching_tool_route",
+        message: `no toolRoutes entry matched ${call.name}`,
+      };
+      return {
+        toolCallId: call.id,
+        name: call.name,
+        result,
+        content: stringifyResult(result),
+        isError: true,
+      };
+    }
+
+    const { route, index } = match;
+    if ("sequence" in route) {
+      const key = `${call.name}\u0000${index}`;
+      const count = callCounts.get(key) ?? 0;
+      callCounts.set(key, count + 1);
+      const step = route.sequence[Math.min(count, route.sequence.length - 1)]!;
+      if ("error" in step) {
+        return {
+          toolCallId: call.id,
+          name: call.name,
+          result: step.error,
+          content: stringifyResult(step.error),
+          isError: true,
+        };
+      }
+      return {
+        toolCallId: call.id,
+        name: call.name,
+        result: step.result,
+        content: stringifyResult(step.result),
+      };
+    }
+    if ("error" in route) {
+      return {
+        toolCallId: call.id,
+        name: call.name,
+        result: route.error,
+        content: stringifyResult(route.error),
+        isError: true,
+      };
+    }
+    return {
+      toolCallId: call.id,
+      name: call.name,
+      result: route.result,
+      content: stringifyResult(route.result),
+    };
+  }
+
   const sequence = options.toolSequences?.[call.name];
   if (sequence !== undefined && sequence.length > 0) {
     const count = callCounts.get(call.name) ?? 0;

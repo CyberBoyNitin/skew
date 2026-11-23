@@ -913,6 +913,275 @@ test("probe tool overrides record and replay exactly", async () => {
   assert.equal(second.stats.errors, 0);
 });
 
+test("runAgent resolves argument-aware routes and reports route misses", async () => {
+  const scripts: ChatResponse[] = [
+    {
+      text: null,
+      toolCalls: [
+        {
+          id: "call_5521",
+          name: "get_order",
+          arguments: { order_id: "5521" },
+        },
+      ],
+    },
+    {
+      text: null,
+      toolCalls: [
+        {
+          id: "call_8812",
+          name: "get_order",
+          arguments: { order_id: "8812" },
+        },
+      ],
+    },
+    {
+      text: null,
+      toolCalls: [
+        {
+          id: "call_9999",
+          name: "get_order",
+          arguments: { order_id: "9999" },
+        },
+      ],
+    },
+    { text: "done", toolCalls: [] },
+  ];
+  let turn = 0;
+
+  const trace = await runAgent(
+    "Fetch the orders.",
+    {
+      maxTurns: 4,
+      toolResults: {},
+      toolRoutes: {
+        get_order: [
+          {
+            when: { order_id: "8812" },
+            result: { order_id: "8812", status: "delivered" },
+          },
+          {
+            when: { order_id: "5521" },
+            result: { order_id: "5521", status: "processing" },
+          },
+        ],
+      },
+      agentText: "none",
+    },
+    async () => scripts[turn++]!,
+  );
+
+  const parsed = JSON.parse(trace) as AgentTrace;
+  assert.equal(parsed.finish, "final");
+  assert.deepEqual(parsed.turns[0]!.results, [
+    {
+      name: "get_order",
+      result: { order_id: "5521", status: "processing" },
+    },
+  ]);
+  assert.deepEqual(parsed.turns[1]!.results, [
+    {
+      name: "get_order",
+      result: { order_id: "8812", status: "delivered" },
+    },
+  ]);
+  assert.deepEqual(parsed.turns[2]!.results, [
+    {
+      name: "get_order",
+      result: {
+        code: "no_matching_tool_route",
+        message: "no toolRoutes entry matched get_order",
+      },
+      is_error: true,
+    },
+  ]);
+});
+
+test("route sequences advance per route, not per tool", async () => {
+  const scripts: ChatResponse[] = [
+    {
+      text: null,
+      toolCalls: [
+        {
+          id: "call_9001",
+          name: "check_refund_status",
+          arguments: { refund_id: "re_9001" },
+        },
+      ],
+    },
+    {
+      text: null,
+      toolCalls: [
+        {
+          id: "call_7781_first",
+          name: "check_refund_status",
+          arguments: { refund_id: "re_7781" },
+        },
+      ],
+    },
+    {
+      text: null,
+      toolCalls: [
+        {
+          id: "call_7781_second",
+          name: "check_refund_status",
+          arguments: { refund_id: "re_7781" },
+        },
+      ],
+    },
+    { text: "done", toolCalls: [] },
+  ];
+  let turn = 0;
+
+  const trace = await runAgent(
+    "Check the refunds.",
+    {
+      maxTurns: 4,
+      toolResults: {},
+      toolRoutes: {
+        check_refund_status: [
+          {
+            when: { refund_id: "re_9001" },
+            result: { refund_id: "re_9001", status: "approved" },
+          },
+          {
+            when: { refund_id: "re_7781" },
+            sequence: [
+              { result: { refund_id: "re_7781", status: "pending" } },
+              { result: { refund_id: "re_7781", status: "approved" } },
+            ],
+          },
+        ],
+      },
+      agentText: "none",
+    },
+    async () => scripts[turn++]!,
+  );
+
+  const parsed = JSON.parse(trace) as AgentTrace;
+  assert.deepEqual(
+    parsed.turns.slice(0, 3).map((item) => item.results?.[0]?.result),
+    [
+      { refund_id: "re_9001", status: "approved" },
+      { refund_id: "re_7781", status: "pending" },
+      { refund_id: "re_7781", status: "approved" },
+    ],
+  );
+});
+
+test("probe tool routes isolate scenarios and merge global routes", async () => {
+  const probes = [
+    probeFromSpec({
+      id: "route-override",
+      prompt: "Call both services.",
+      toolRoutes: { ping: [{ result: { v: "a-ping" } }] },
+    }),
+    probeFromSpec({
+      id: "route-inherit",
+      prompt: "Call both services.",
+    }),
+  ];
+  const run = await new Harness({
+    probes,
+    stacks: [new MultiToolAgent("a"), new MultiToolAgent("b")],
+    trials: 3,
+    minimize: false,
+    maxTurns: 2,
+    toolResults: {},
+    toolRoutes: {
+      ping: [{ result: { v: "global-ping" } }],
+      pong: [{ result: { v: "global-pong" } }],
+    },
+    toolNames: ["ping", "pong"],
+    agentText: "final",
+    retries: 0,
+    concurrency: 4,
+    origin: "test",
+  }).run();
+
+  assert.equal(run.findings.length, 2);
+  assert.equal(run.meta.routedTools, 2);
+  assert.equal(run.meta.routeRules, 3);
+  assert.equal(run.meta.toolOverrideProbes, 1);
+  assert.equal(run.meta.toolOverrides, 1);
+
+  const overridden = run.findings.find(
+    (finding) => finding.probeId === "route-override",
+  )!;
+  assert.match(overridden.outputA, /a-ping/);
+  assert.match(overridden.outputA, /global-pong/);
+  assert.doesNotMatch(overridden.outputA, /global-ping/);
+
+  const inherited = run.findings.find(
+    (finding) => finding.probeId === "route-inherit",
+  )!;
+  assert.match(inherited.outputA, /global-ping/);
+  assert.match(inherited.outputA, /global-pong/);
+
+  const html = renderHtml(run);
+  assert.match(html, /2 routed tools · 3 routes/);
+});
+
+test("probe tool routes record and replay exactly", async () => {
+  const probes = [
+    probeFromSpec({
+      id: "route-replay-override",
+      prompt: "Call both services.",
+      toolRoutes: { ping: [{ result: { v: "a-ping" } }] },
+    }),
+    probeFromSpec({
+      id: "route-replay-inherit",
+      prompt: "Call both services.",
+    }),
+  ];
+  const recorders = [
+    new RecordingRunner(new MultiToolAgent("a")),
+    new RecordingRunner(new MultiToolAgent("b")),
+  ];
+  const options = {
+    probes,
+    trials: 2,
+    minimize: false,
+    maxTurns: 2,
+    toolResults: {},
+    toolRoutes: {
+      ping: [{ result: { v: "global-ping" } }],
+      pong: [{ result: { v: "global-pong" } }],
+    },
+    toolNames: ["ping", "pong"],
+    agentText: "final" as const,
+    retries: 0,
+    concurrency: 4,
+    origin: "test",
+  };
+  const first = await new Harness({ ...options, stacks: recorders }).run();
+
+  const dir = await mkdtemp(join(tmpdir(), "skew-route-replay-"));
+  await saveRecordings(dir, recorders, "0.9.0");
+  const replayers = await loadReplayRunners(
+    dir,
+    recorders.map((runner) => runner.name),
+  );
+  const second = await new Harness({ ...options, stacks: replayers }).run();
+
+  assert.deepEqual(
+    second.findings.map((finding) => ({
+      probeId: finding.probeId,
+      outputA: finding.outputA,
+      outputB: finding.outputB,
+      verdict: finding.verdict,
+    })),
+    first.findings.map((finding) => ({
+      probeId: finding.probeId,
+      outputA: finding.outputA,
+      outputB: finding.outputB,
+      verdict: finding.verdict,
+    })),
+  );
+  assert.equal(second.stats.calls, first.stats.calls);
+  assert.equal(second.stats.errors, 0);
+});
+
 test("replay namespaces identical prompts by probe", async () => {
   const probes = [
     probeFromSpec({

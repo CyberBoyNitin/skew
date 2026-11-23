@@ -174,6 +174,12 @@ export function printSummary(run: Run, outDir: string): void {
     sequencedTools > 0
       ? `   sequences   ${sequencedTools}${injectedErrors > 0 ? ` (${injectedErrors} error steps)` : ""}`
       : "";
+  const routedTools = run.meta.routedTools ?? 0;
+  const routeRules = run.meta.routeRules ?? 0;
+  const routes =
+    routedTools > 0
+      ? `   routes   ${routedTools}${routeRules > 0 ? ` (${routeRules} rules)` : ""}`
+      : "";
   const followUps = run.meta.followUps ?? 0;
   const conversations =
     followUps > 0 ? `   follow-ups   ${followUps}` : "";
@@ -181,7 +187,7 @@ export function printSummary(run: Run, outDir: string): void {
   const probeOverrides =
     overrides > 0 ? `   overrides   ${overrides}` : "";
   console.log(
-    `probes   ${run.meta.probeCount}   trials   ${run.meta.trials}${turns}${sequences}${conversations}${probeOverrides}   calls   ${run.stats.calls}   errors   ${run.stats.errors}${retries}   checks   ${run.stats.minimizeChecks}`,
+    `probes   ${run.meta.probeCount}   trials   ${run.meta.trials}${turns}${sequences}${routes}${conversations}${probeOverrides}   calls   ${run.stats.calls}   errors   ${run.stats.errors}${retries}   checks   ${run.stats.minimizeChecks}`,
   );
   console.log(
     `found    ${counts.total} divergences (${counts.safety} safety, ${counts.semantic} semantic, ${counts["format-only"]} format-only) · ${run.unstable.length} unstable pairs`,
@@ -243,6 +249,12 @@ export function renderHtml(run: Run): string {
   const sequenceBadge =
     sequencedTools > 0
       ? `\n        <span class="badge demo">${sequencedTools} sequenced tool${sequencedTools === 1 ? "" : "s"}${injectedErrors > 0 ? ` · ${injectedErrors} error step${injectedErrors === 1 ? "" : "s"}` : ""}</span>`
+      : "";
+  const routedTools = run.meta.routedTools ?? 0;
+  const routeRules = run.meta.routeRules ?? 0;
+  const routeBadge =
+    routedTools > 0
+      ? `\n        <span class="badge demo">${routedTools} routed tool${routedTools === 1 ? "" : "s"}${routeRules > 0 ? ` · ${routeRules} route${routeRules === 1 ? "" : "s"}` : ""}</span>`
       : "";
   const followUpCount = run.meta.followUps ?? 0;
   const followUpBadge =
@@ -313,7 +325,7 @@ export function renderHtml(run: Run): string {
         ${originBadge}
         <span class="badge">seed ${run.meta.seed}</span>
         <span class="badge">${run.meta.probeCount} probes</span>
-        <span class="badge">${run.meta.trials} trials</span>${turnBadge}${sequenceBadge}${followUpBadge}${overrideBadge}
+        <span class="badge">${run.meta.trials} trials</span>${turnBadge}${sequenceBadge}${routeBadge}${followUpBadge}${overrideBadge}
         <span class="badge">${run.meta.durationS.toFixed(2)}s</span>
       </div>
     </div>
@@ -345,7 +357,7 @@ export function renderHtml(run: Run): string {
     <h2>Method</h2>
     <div class="method">
       <div class="step"><div class="num">01</div><div class="name">generate</div><p>A seeded grammar emits extraction probes around JSON edge cases, and custom probe files can add tool-use and safety cases.</p></div>
-      <div class="step"><div class="num">02</div><div class="name">sample</div><p>Every stack answers every probe N times at temperature 0. Calls are retried with backoff and bounded by a concurrency limit. With a multi-turn config, tool calls are answered from static or sequenced results and the model continues until it stops or hits the turn budget. Sequence steps can return a result or inject an error to exercise retry paths.</p></div>
+      <div class="step"><div class="num">02</div><div class="name">sample</div><p>Every stack answers every probe N times at temperature 0. Calls are retried with backoff and bounded by a concurrency limit. With a multi-turn config, tool calls are answered from static, argument-routed, or sequenced results and the model continues until it stops or hits the turn budget. Routes can branch on call arguments, and steps can return a result or inject an error to exercise retry paths.</p></div>
       <div class="step"><div class="num">03</div><div class="name">classify</div><p>Stacks that disagree with themselves are marked unstable. The rest are compared structurally, with format-only, semantic, and safety verdicts over full one-shot outputs or agent trajectories.</p></div>
       <div class="step"><div class="num">04</div><div class="name">minimize</div><p>Each divergence is delta-debugged over prompt segments and re-verified at the full trial count. Only reductions that reproduce the same disagreement are kept.</p></div>
     </div>
@@ -361,7 +373,8 @@ export function renderHtml(run: Run): string {
         <li>JSON is compared structurally, with unsafe integers preserved losslessly from the source text. Prose is compared after whitespace normalization.</li>
         <li>Native tool calls are normalized to <code>{name, arguments}</code>. Provider ids, envelopes, and serialization differences are ignored; tool choice and argument values are compared.</li>
         <li>In agent mode, tool calls are answered from static <code>toolResults</code> values or ordered <code>toolSequences</code>. skew never executes a tool or performs a real side effect. Each sequence step is a result or an injected error; after the last step, the last step repeats. The trace compares call order, arguments, returned results, injected errors, and where the loop stopped; assistant text is included according to <code>agentText</code>. The default <code>final</code> omits pre-tool narration because it is high-variance. Use <code>all</code> to compare every assistant message, or <code>none</code> to compare only calls, results, and where the loop stopped. Follow-up turns add the next scripted user message after a final answer and count against the same <code>maxTurns</code> budget.</li>
-        <li>Probes can override global <code>toolResults</code> and <code>toolSequences</code> tool by tool. An override replaces the global entry for that tool, so one suite can exercise different retry, failure, and recovery paths without shared sequence state. A probe cannot define both a static result and a sequence for the same tool.</li>
+        <li>Probes can override global <code>toolResults</code>, <code>toolSequences</code>, and <code>toolRoutes</code> tool by tool. An override replaces the global entry for that tool, so one suite can exercise different retry, failure, and recovery paths without shared sequence state. A probe cannot define more than one of a static result, a sequence, and a route list for the same tool.</li>
+        <li>Argument-aware routes match a subset of tool-call arguments recursively; extra argument keys are allowed. The first matching route wins, and a route without <code>when</code> is a fallback and must be last. A call with no matching route receives an injected <code>no_matching_tool_route</code> error. Sequences inside routes advance per route, not per tool, so two entities can have independent state.</li>
         <li>Stacks speak either OpenAI chat-completions or the Anthropic Messages API. Provider-specific sampling controls are not compared.</li>
       </ul>
     </div>

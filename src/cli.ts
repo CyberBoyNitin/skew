@@ -18,6 +18,7 @@ import type {
   DivergenceVerdict,
   Run,
   Runner,
+  ToolRoute,
   ToolSequenceStep,
 } from "./types.ts";
 import { VERSION } from "./version.ts";
@@ -76,6 +77,7 @@ interface ExecuteOptions {
   maxTurns: number;
   toolResults: Record<string, unknown>;
   toolSequences: Record<string, ToolSequenceStep[]>;
+  toolRoutes: Record<string, ToolRoute[]>;
   toolNames?: string[];
   agentText: AgentText;
   origin: string;
@@ -157,6 +159,7 @@ async function main(argv: string[]): Promise<void> {
       maxTurns: 1,
       toolResults: {},
       toolSequences: {},
+      toolRoutes: {},
       agentText: "final",
       origin: "demo",
       outDir,
@@ -225,6 +228,7 @@ async function main(argv: string[]): Promise<void> {
       maxTurns: config.maxTurns,
       toolResults: config.toolResults,
       toolSequences: config.toolSequences,
+      toolRoutes: config.toolRoutes,
       toolNames: config.tools.map((tool) => tool.name),
       agentText: config.agentText,
       origin: values.replay ? "replay" : "live",
@@ -261,6 +265,7 @@ async function execute(options: ExecuteOptions): Promise<number> {
     maxTurns: options.maxTurns,
     toolResults: options.toolResults,
     toolSequences: options.toolSequences,
+    toolRoutes: options.toolRoutes,
     ...(options.toolNames ? { toolNames: options.toolNames } : {}),
     agentText: options.agentText,
   });

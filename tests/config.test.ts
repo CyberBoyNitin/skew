@@ -337,7 +337,179 @@ test("agent loop config validates sequenced tool results", () => {
         tools: [tool, { name: "get_customer", description: "Fetch." }],
         toolSequences: { get_order: [{ result: {} }] },
       }),
-    /missing a result for tool "get_customer"/,
+    /missing a result or route for tool "get_customer"/,
+  );
+});
+
+test("agent loop config parses argument-aware tool routes", () => {
+  const tool = {
+    name: "get_order",
+    description: "Fetch an order.",
+  };
+  const config = normalizeConfig({
+    stacks: STACKS,
+    maxTurns: 3,
+    tools: [tool],
+    toolRoutes: {
+      get_order: [
+        {
+          when: { order_id: "8812" },
+          result: { order_id: "8812", status: "delivered" },
+        },
+        {
+          when: { order_id: "5521" },
+          sequence: [
+            { error: { code: "timeout", retryable: true } },
+            { result: { order_id: "5521", status: "processing" } },
+          ],
+        },
+        { error: { code: "not_found", retryable: false } },
+      ],
+    },
+  });
+
+  assert.deepEqual(config.toolResults, {});
+  assert.deepEqual(config.toolSequences, {});
+  assert.deepEqual(config.toolRoutes, {
+    get_order: [
+      {
+        when: { order_id: "8812" },
+        result: { order_id: "8812", status: "delivered" },
+      },
+      {
+        when: { order_id: "5521" },
+        sequence: [
+          { error: { code: "timeout", retryable: true } },
+          { result: { order_id: "5521", status: "processing" } },
+        ],
+      },
+      { error: { code: "not_found", retryable: false } },
+    ],
+  });
+});
+
+test("agent loop config validates argument-aware tool routes", () => {
+  const tool = {
+    name: "get_order",
+    description: "Fetch an order.",
+  };
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+        toolRoutes: { get_order: [] },
+      }),
+    /non-empty array/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+        toolRoutes: {
+          get_order: [{ when: {}, result: { ok: true } }],
+        },
+      }),
+    /when must not be empty/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+        toolRoutes: {
+          get_order: [
+            { result: {} },
+            { when: { order_id: "8812" }, result: {} },
+          ],
+        },
+      }),
+    /fallback route must be last/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+        toolRoutes: {
+          get_order: [
+            { result: {} },
+            { when: { order_id: "8812" }, result: {} },
+          ],
+        },
+      }),
+    /fallback route must be last/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+        toolRoutes: {
+          get_order: [{ result: {} }, { result: {} }],
+        },
+      }),
+    /at most one fallback route/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+        toolRoutes: {
+          get_order: [{ result: {} }],
+          other_tool: [{ result: {} }],
+        },
+      }),
+    /unknown tool/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 1,
+        tools: [tool],
+        toolRoutes: { get_order: [{ result: {} }] },
+      }),
+    /requires maxTurns >= 2/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+        toolResults: { get_order: {} },
+        toolRoutes: { get_order: [{ result: {} }] },
+      }),
+    /cannot be combined/,
+  );
+
+  assert.throws(
+    () =>
+      normalizeConfig({
+        stacks: STACKS,
+        maxTurns: 2,
+        tools: [tool],
+        toolSequences: { get_order: [{ result: {} }] },
+        toolRoutes: { get_order: [{ result: {} }] },
+      }),
+    /cannot be combined/,
   );
 });
 
