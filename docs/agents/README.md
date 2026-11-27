@@ -119,3 +119,8 @@ For retry and failure-recovery trajectories, see the
 [agent failure run](../agent-failures/README.md), which adds sequenced tool
 results and injected errors. For scripted follow-up user turns after a final
 answer, see the [conversation run](../conversations/README.md).
+
+## Report template
+
+The HTML report in this directory was regenerated with skew v1.0.0. The
+recorded fixtures, findings, and counts are unchanged from the original run.

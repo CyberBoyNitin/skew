@@ -57,6 +57,8 @@ test("demo pipeline produces every verdict class and artifacts", async () => {
 
   assert.ok(html.includes("SKEW"));
   assert.ok(html.includes("minimized repro"));
+  assert.match(html, /prefers-color-scheme:dark/);
+  assert.doesNotMatch(html, /radial-gradient|box-shadow|border-radius|linear-gradient/);
   assert.equal(jsonl.trim().split("\n").length, run.findings.length);
   assert.equal(summary.counts.total, run.findings.length);
 });

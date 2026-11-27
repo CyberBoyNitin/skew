@@ -134,3 +134,8 @@ trajectories and minimization checks.
 For scripted follow-up user turns after final answers, see the
 [conversation run](../conversations/README.md), which adds conversational
 corrections, rechecks, and retry requests.
+
+## Report template
+
+The HTML report in this directory was regenerated with skew v1.0.0. The
+recorded fixtures, findings, and counts are unchanged from the original run.

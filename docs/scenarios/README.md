@@ -180,3 +180,8 @@ SHA-256 `f4525e2c31c9ae546e47a615efbf0d3e319f6d0cb637724393d1539e0817e545`.
   They are reported at severity 1 and separated from the semantic findings.
 - One gateway and two models. This is a demonstration of probe-scoped tool
   environments, not a benchmark or a claim about either provider.
+
+## Report template
+
+The HTML report in this directory was regenerated with skew v1.0.0. The
+recorded fixtures, findings, and counts are unchanged from the original run.

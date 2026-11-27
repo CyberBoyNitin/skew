@@ -150,3 +150,8 @@ trajectories and minimization checks.
 - The format-only refund finding is a real structural difference, but it is
   argument formatting rather than recovery behavior. It is reported at severity
   1 and separated from the semantic finding.
+
+## Report template
+
+The HTML report in this directory was regenerated with skew v1.0.0. The
+recorded fixtures, findings, and counts are unchanged from the original run.

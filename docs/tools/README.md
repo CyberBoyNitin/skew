@@ -80,3 +80,8 @@ errors in 0.03s.
 - Tool calls are single-turn. The harness does not execute tools or feed results
   back to the model.
 - Outputs are shown verbatim, including JSON key order and whitespace.
+
+## Report template
+
+The HTML report in this directory was regenerated with skew v1.0.0. The
+recorded fixtures, findings, and counts are unchanged from the original run.

@@ -1,7 +1,7 @@
 {
   "meta": {
-    "startedAt": "2026-11-17T05:39:49.337Z",
-    "durationS": 0.41,
+    "startedAt": "2026-11-27T05:38:49.036Z",
+    "durationS": 0.21,
     "seed": 7,
     "probeCount": 8,
     "trials": 3,
@@ -12,13 +12,15 @@
     "followUps": 0,
     "toolOverrideProbes": 0,
     "toolOverrides": 0,
+    "routedTools": 0,
+    "routeRules": 0,
     "stacks": [
       "alpha",
       "beta",
       "gamma",
       "delta"
     ],
-    "version": "0.8.0",
+    "version": "1.0.0",
     "origin": "demo"
   },
   "stats": {

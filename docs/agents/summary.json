@@ -1,17 +1,25 @@
 {
   "meta": {
-    "startedAt": "2026-11-14T06:35:13.754Z",
-    "durationS": 967.77,
+    "startedAt": "2026-11-27T05:38:54.400Z",
+    "durationS": 0.09,
     "seed": 31,
     "probeCount": 6,
     "trials": 3,
     "maxTurns": 4,
+    "sequencedTools": 0,
+    "injectedErrors": 0,
+    "followUpProbes": 0,
+    "followUps": 0,
+    "toolOverrideProbes": 0,
+    "toolOverrides": 0,
+    "routedTools": 0,
+    "routeRules": 0,
     "stacks": [
       "gpt-oss-120b",
       "claude-sonnet-anthropic"
     ],
-    "version": "0.5.0",
-    "origin": "live"
+    "version": "1.0.0",
+    "origin": "replay"
   },
   "stats": {
     "calls": 137,

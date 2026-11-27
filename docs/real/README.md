@@ -70,3 +70,8 @@ in 0.01s.
 - Generated probes are extraction prompts. This run does not cover tool calls,
   long context, or streaming.
 - Outputs are shown verbatim, including whitespace differences.
+
+## Report template
+
+The HTML report in this directory was regenerated with skew v1.0.0. The
+recorded fixtures, findings, and counts are unchanged from the original run.

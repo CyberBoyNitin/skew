@@ -319,7 +319,10 @@ The hard part is not generating prompts. It is making the result trustworthy:
 
 Each run writes three artifacts:
 
-- `report.html` — self-contained report with minimized prompts and outputs
+- `report.html` — self-contained report with minimized prompts, agent traces,
+  and a sticky run rail. The v1.0 layout is hairline-ruled and print-friendly,
+  uses one accent for safety findings, and follows `prefers-color-scheme` for
+  light and dark rendering. No external assets or fonts.
 - `findings.jsonl` — one JSON object per finding, for CI and analysis
 - `summary.json` — run metadata and counts
 

@@ -1,6 +1,6 @@
 {
   "name": "skew-cli",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "description": "Differential fuzzing for LLM stacks, including argument-aware tool routes, failure-aware workflows, scripted follow-up conversations, and probe-scoped tool environments: find, classify, and minimize behavioral divergences.",
   "type": "module",
   "bin": {
